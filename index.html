@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quiz Activity</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div>
+            <h1>Quiz Activity</h1>
+            <p id="statusText">Enter your classroom details to begin</p>
+        </div>
+        <button class="btn" id="resetBtn" hidden>Exit Quiz</button>
+    </header>
+
+    <main class="app-shell">
+        <section class="panel login-panel" id="loginView">
+            <div class="section-title">
+                <h2>Student Login</h2>
+                <span class="step-chip">Step 1</span>
+            </div>
+            <div class="form-grid">
+                <label class="field">
+                    <span>Class Code</span>
+                    <input id="classCodeInput" inputmode="numeric" autocomplete="off" placeholder="176260" />
+                </label>
+                <label class="field">
+                    <span>Admission No</span>
+                    <input id="admissionNoInput" autocomplete="off" placeholder="102" />
+                </label>
+                <label class="field">
+                    <span>Full Phone</span>
+                    <input id="phoneInput" inputmode="tel" autocomplete="tel" placeholder="Registered phone" />
+                </label>
+            </div>
+            <div class="hint-box" id="phoneHintBox" hidden></div>
+            <div class="actions">
+                <button class="btn primary" id="verifyBtn">Verify Student</button>
+            </div>
+            <div class="error-box" id="loginError" hidden></div>
+        </section>
+
+        <section class="panel setup-panel" id="setupView" hidden>
+            <div class="section-title">
+                <div>
+                    <h2 id="welcomeTitle">Welcome</h2>
+                    <p id="classroomLabel"></p>
+                </div>
+                <span class="step-chip">Step 2</span>
+            </div>
+            <div class="form-grid">
+                <label class="field">
+                    <span>Class</span>
+                    <input id="classFilter" placeholder="Any class" />
+                </label>
+                <label class="field">
+                    <span>Subject</span>
+                    <input id="subjectFilter" placeholder="Any subject" />
+                </label>
+                <label class="field">
+                    <span>Chapter</span>
+                    <input id="chapterFilter" placeholder="Any chapter" />
+                </label>
+                <label class="field">
+                    <span>Difficulty</span>
+                    <select id="difficultyFilter">
+                        <option value="">Any</option>
+                        <option>Easy</option>
+                        <option>Medium</option>
+                        <option>Hard</option>
+                        <option>Very Hard</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>Question Count</span>
+                    <input id="questionCountInput" type="number" min="1" value="10" />
+                </label>
+            </div>
+            <div class="quiz-summary" id="questionLoadSummary">Load questions to see availability.</div>
+            <div class="actions">
+                <button class="btn" id="loadQuestionsBtn">Load Questions</button>
+                <button class="btn primary" id="startQuizBtn" disabled>Start Quiz</button>
+            </div>
+        </section>
+
+        <section class="quiz-layout" id="quizView" hidden>
+            <aside class="panel nav-panel">
+                <div class="section-title">
+                    <h2>Questions</h2>
+                    <span id="timerLabel" class="step-chip">Live</span>
+                </div>
+                <div id="questionNav" class="question-nav"></div>
+                <div class="quiz-summary" id="progressSummary"></div>
+                <button class="btn primary wide-btn" id="submitQuizBtn">Submit Quiz</button>
+            </aside>
+            <section class="panel quiz-panel">
+                <div class="question-head">
+                    <div>
+                        <span id="questionMeta" class="meta-line"></span>
+                        <h2 id="questionTitle"></h2>
+                    </div>
+                    <span id="questionTypeLabel" class="step-chip"></span>
+                </div>
+                <div id="questionPrompt" class="rich-content"></div>
+                <div id="answerArea" class="answer-area"></div>
+                <div class="actions spread">
+                    <button class="btn" id="prevQuestionBtn">Previous</button>
+                    <button class="btn primary" id="nextQuestionBtn">Next</button>
+                </div>
+            </section>
+        </section>
+
+        <section class="panel result-panel" id="resultView" hidden>
+            <div class="section-title">
+                <div>
+                    <h2>Submission Complete</h2>
+                    <p id="resultSummary"></p>
+                </div>
+                <span class="step-chip">Submitted</span>
+            </div>
+            <div id="reviewList" class="review-list"></div>
+        </section>
+
+        <section class="panel history-panel" id="historyView" hidden>
+            <div class="section-title">
+                <h2>Past Submissions</h2>
+                <span class="step-chip">Newest First</span>
+            </div>
+            <div id="historyList" class="history-list"></div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+    <script type="module" src="app.js"></script>
+</body>
+</html>

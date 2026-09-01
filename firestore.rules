@@ -1,0 +1,32 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /classrooms/{classroomId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /classSections/{sectionId}/students/{studentId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /qb_questions_v1/{questionId} {
+      allow read: if resource.data.status == 'published';
+      allow write: if false;
+    }
+
+    match /qb_quiz_submissions_v1/{submissionId} {
+      allow read: if resource.data.studentKey is string;
+
+      allow create: if request.resource.data.studentKey is string
+        && request.resource.data.sectionId is string
+        && request.resource.data.admissionNo is string
+        && request.resource.data.answers is list
+        && request.resource.data.questionCount is int;
+
+      allow update, delete: if false;
+    }
+  }
+}
