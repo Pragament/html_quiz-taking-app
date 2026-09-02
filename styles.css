@@ -19,6 +19,10 @@
     box-sizing: border-box;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 body {
     margin: 0;
     min-height: 100vh;
@@ -35,7 +39,8 @@ textarea {
     font: inherit;
 }
 
-button {
+button,
+a.btn {
     cursor: pointer;
 }
 
@@ -58,6 +63,14 @@ button {
 
 .topbar h1 {
     font-size: 20px;
+}
+
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .topbar p,
@@ -169,6 +182,9 @@ button {
 }
 
 .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     min-height: 36px;
     border: 1px solid var(--line);
     border-radius: 7px;
@@ -177,6 +193,7 @@ button {
     padding: 0 13px;
     font-size: 13px;
     font-weight: 700;
+    text-decoration: none;
 }
 
 .btn:hover {
@@ -398,6 +415,7 @@ button {
         flex-direction: column;
     }
 
+    .topbar-actions,
     .topbar .btn,
     .actions .btn,
     .spread .btn {

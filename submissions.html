@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Past Submissions | Quiz Activity</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <header class="topbar">
+        <div>
+            <h1>Past Submissions</h1>
+            <p id="historyStatusText">Loading submission history...</p>
+        </div>
+        <div class="topbar-actions">
+            <a class="btn" href="index.html">Back to Quiz</a>
+        </div>
+    </header>
+
+    <main class="app-shell">
+        <section class="panel history-panel">
+            <div class="section-title">
+                <div>
+                    <h2 id="historyStudentName">Student</h2>
+                    <p id="historyClassroomLabel"></p>
+                </div>
+                <span class="step-chip">Newest First</span>
+            </div>
+            <div id="historyList" class="history-list"></div>
+        </section>
+    </main>
+
+    <div id="toast" class="toast"></div>
+    <script type="module" src="submissions.js"></script>
+</body>
+</html>

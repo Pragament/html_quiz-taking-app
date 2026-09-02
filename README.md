@@ -1,12 +1,14 @@
 # Quiz Activity App
 
-Independent responsive quiz-taking app for students. It verifies a student through existing `classrooms` and `classSections/{sectionId}/students` data, loads published question bank questions, runs the quiz from a local in-memory snapshot after Start, and writes attempts to `qb_quiz_submissions_v1`.
+Independent responsive quiz-taking app for students. It verifies a student through existing `classrooms` and `classSections/{sectionId}/students` data, loads classroom question-list questions or published question bank questions, runs the quiz from a local in-memory snapshot after Start, and writes attempts to `qb_quiz_submissions_v1`.
 
 ## Files
 
-- `index.html` - login, quiz setup, quiz runner, result, and submission history views.
+- `index.html` - login, quiz setup, quiz runner, result, and past-submissions navigation.
+- `submissions.html` - standalone past-submissions page for the verified student.
 - `styles.css` - responsive phone, tablet, and desktop layout.
-- `app.js` - Firebase reads/writes, student verification, quiz state, grading, and submission history.
+- `app.js` - Firebase reads/writes, student verification, quiz state, grading, and verified-session storage.
+- `submissions.js` - Firebase read for the standalone past-submissions page.
 - `FIRESTORE_SCHEMA.md` - collection and document schema notes.
 - `firestore.rules` - starter rules for quiz-related access.
 
@@ -17,10 +19,12 @@ Independent responsive quiz-taking app for students. It verifies a student throu
 3. Login continues only when `classEnabled === true`.
 4. App reads `/classSections/{sectionId}/students/{admissionNo}` first, then falls back to querying by `admissionNo`.
 5. App shows the last 3 digits of the registered phone and verifies the full entered phone.
-6. Student loads published questions from `qb_questions_v1`.
-7. After Start, the selected/shuffled question list is local in memory so navigation continues offline until Submit.
-8. Submit writes to `qb_quiz_submissions_v1`.
-9. App reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first.
+6. The homepage Past Submissions button opens a standalone history page; after verification, the student session is stored locally so that page can load the verified student's attempts.
+7. If the classroom has `questionBankListId`, the app hides manual filters, hides Load Questions, reads that `qb_lists_v1` document automatically, and loads only its published `questionIds` from `qb_questions_v1` in list order.
+8. If the classroom does not have `questionBankListId`, the student loads published questions from `qb_questions_v1` using the setup filters.
+9. After Start, the selected question list is local in memory so navigation continues offline until Submit.
+10. Submit writes to `qb_quiz_submissions_v1`.
+11. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first.
 
 ## Run Locally
 
@@ -42,5 +46,6 @@ The app loads Firebase, KaTeX, and Mermaid from CDNs, so internet is required fo
 
 - MCQ, True/False, and FIB questions are auto-graded.
 - Short-answer responses are stored with `isCorrect: null` for teacher review.
-- Published question reads use `qb_questions_v1 where status == "published"`.
+- Classrooms with `questionBankListId` use the teacher-selected list order and do not shuffle questions.
+- Published question reads use `qb_questions_v1 where status == "published"` when no classroom list is selected.
 - Student submission history uses `studentKey = sectionId_admissionNo`.

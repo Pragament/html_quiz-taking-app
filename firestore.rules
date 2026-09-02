@@ -17,6 +17,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /qb_lists_v1/{listId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /qb_quiz_submissions_v1/{submissionId} {
       allow read: if resource.data.studentKey is string;
 

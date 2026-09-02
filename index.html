@@ -15,7 +15,10 @@
             <h1>Quiz Activity</h1>
             <p id="statusText">Enter your classroom details to begin</p>
         </div>
-        <button class="btn" id="resetBtn" hidden>Exit Quiz</button>
+        <div class="topbar-actions">
+            <button class="btn" id="viewSubmissionsBtn">Past Submissions</button>
+            <button class="btn" id="resetBtn" hidden>Exit Quiz</button>
+        </div>
     </header>
 
     <main class="app-shell">
@@ -53,7 +56,7 @@
                 </div>
                 <span class="step-chip">Step 2</span>
             </div>
-            <div class="form-grid">
+            <div class="form-grid" id="quizFilterControls">
                 <label class="field">
                     <span>Class</span>
                     <input id="classFilter" placeholder="Any class" />
@@ -124,14 +127,6 @@
                 <span class="step-chip">Submitted</span>
             </div>
             <div id="reviewList" class="review-list"></div>
-        </section>
-
-        <section class="panel history-panel" id="historyView" hidden>
-            <div class="section-title">
-                <h2>Past Submissions</h2>
-                <span class="step-chip">Newest First</span>
-            </div>
-            <div id="historyList" class="history-list"></div>
         </section>
     </main>
 

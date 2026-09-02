@@ -24,6 +24,7 @@ const firebaseConfig = {
 const COLLECTIONS = {
     classrooms: 'classrooms',
     classSections: 'classSections',
+    questionLists: 'qb_lists_v1',
     questions: 'qb_questions_v1',
     submissions: 'qb_quiz_submissions_v1'
 };
@@ -42,23 +43,25 @@ let session = null;
 let loadedQuestions = [];
 let quiz = null;
 let currentIndex = 0;
-let submissions = [];
 let toastTimer = null;
 let timerInterval = null;
+
+const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 
 const $ = (id) => document.getElementById(id);
 const els = {
     statusText: $('statusText'),
     resetBtn: $('resetBtn'),
+    viewSubmissionsBtn: $('viewSubmissionsBtn'),
     loginView: $('loginView'),
     setupView: $('setupView'),
     quizView: $('quizView'),
     resultView: $('resultView'),
-    historyView: $('historyView'),
     loginError: $('loginError'),
     phoneHintBox: $('phoneHintBox'),
     welcomeTitle: $('welcomeTitle'),
     classroomLabel: $('classroomLabel'),
+    quizFilterControls: $('quizFilterControls'),
     questionLoadSummary: $('questionLoadSummary'),
     startQuizBtn: $('startQuizBtn'),
     questionNav: $('questionNav'),
@@ -70,7 +73,6 @@ const els = {
     answerArea: $('answerArea'),
     resultSummary: $('resultSummary'),
     reviewList: $('reviewList'),
-    historyList: $('historyList'),
     timerLabel: $('timerLabel'),
     toast: $('toast')
 };
@@ -89,6 +91,9 @@ function bindEvents() {
     $('nextQuestionBtn').addEventListener('click', () => moveQuestion(1));
     $('submitQuizBtn').addEventListener('click', submitQuiz);
     els.resetBtn.addEventListener('click', resetApp);
+    els.viewSubmissionsBtn.addEventListener('click', () => {
+        window.location.href = 'submissions.html';
+    });
     ['classFilter', 'subjectFilter', 'chapterFilter', 'difficultyFilter', 'questionCountInput'].forEach(id => {
         $(id).addEventListener('input', () => {
             loadedQuestions = [];
@@ -157,10 +162,14 @@ async function verifyStudent() {
         };
         els.welcomeTitle.textContent = `Welcome, ${session.studentName}`;
         els.classroomLabel.textContent = `${classroom.className || classroom.classCode || classroomId} · ${classroom.sectionName || classroom.sectionId}`;
-        setStatus('Verified. Choose quiz filters and load questions.');
+        saveVerifiedSession();
+        configureSetupForClassroom();
+        setStatus(session.classroom.questionBankListId
+            ? 'Verified. Loading classroom questions...'
+            : 'Verified. Choose quiz filters and load questions.');
         showOnly('setup');
         els.resetBtn.hidden = false;
-        await loadSubmissionHistory();
+        if (session.classroom.questionBankListId) await loadPublishedQuestions();
     } catch (error) {
         showLoginError(error.message || 'Unable to verify student.');
         setStatus('Verification failed');
@@ -186,23 +195,59 @@ async function findStudent(sectionId, admissionNo) {
     return { studentDocId: first.id, student: first.data() };
 }
 
+function configureSetupForClassroom() {
+    const hasClassroomList = !!session?.classroom?.questionBankListId;
+    els.quizFilterControls.hidden = hasClassroomList;
+    $('loadQuestionsBtn').hidden = hasClassroomList;
+    els.startQuizBtn.disabled = true;
+    els.questionLoadSummary.textContent = hasClassroomList
+        ? 'Loading the teacher-selected classroom question list...'
+        : 'Load questions to see availability.';
+}
+
 async function loadPublishedQuestions() {
     if (!session) return toast('Verify student first');
     try {
-        setStatus('Loading published questions...');
-        const snap = await getDocs(query(collection(db, COLLECTIONS.questions), where('status', '==', 'published')));
-        const filters = getQuizFilters();
-        loadedQuestions = snap.docs
-            .map(d => ({ id: d.id, ...d.data() }))
-            .filter(q => matchesQuizFilters(q, filters));
-        const requested = Number($('questionCountInput').value || 10);
-        els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'} match these filters. ${Math.min(requested, loadedQuestions.length)} will be used.`;
+        const listId = session.classroom.questionBankListId;
+        if (listId) {
+            setStatus('Loading classroom question list...');
+            loadedQuestions = await loadQuestionsFromList(listId);
+            els.questionLoadSummary.textContent = `${loadedQuestions.length} classroom question${loadedQuestions.length === 1 ? '' : 's'} loaded in teacher-selected order.`;
+        } else {
+            setStatus('Loading published questions...');
+            const snap = await getDocs(query(collection(db, COLLECTIONS.questions), where('status', '==', 'published')));
+            const filters = getQuizFilters();
+            loadedQuestions = snap.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .filter(q => matchesQuizFilters(q, filters));
+            const requested = Number($('questionCountInput').value || 10);
+            els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'} match these filters. ${Math.min(requested, loadedQuestions.length)} will be used.`;
+        }
         els.startQuizBtn.disabled = !loadedQuestions.length;
         setStatus('Questions loaded. You can start the quiz.');
     } catch (error) {
         els.questionLoadSummary.textContent = error.message || 'Unable to load questions.';
         setStatus('Question load failed');
     }
+}
+
+async function loadQuestionsFromList(listId) {
+    const listSnap = await getDoc(doc(db, COLLECTIONS.questionLists, listId));
+    if (!listSnap.exists()) throw new Error('The classroom question list could not be found.');
+
+    const questionIds = Array.isArray(listSnap.data().questionIds)
+        ? listSnap.data().questionIds.filter(id => typeof id === 'string' && id.trim())
+        : [];
+    if (!questionIds.length) return [];
+
+    const questionSnaps = await Promise.all(
+        questionIds.map(questionId => getDoc(doc(db, COLLECTIONS.questions, questionId)))
+    );
+    return questionSnaps
+        .map((questionSnap, index) => questionSnap.exists()
+            ? { id: questionSnap.id, listOrder: index, ...questionSnap.data() }
+            : null)
+        .filter(question => question && question.status === 'published');
 }
 
 function getQuizFilters() {
@@ -224,8 +269,14 @@ function matchesQuizFilters(question, filters) {
 
 function startQuiz() {
     if (!loadedQuestions.length) return toast('Load questions first');
-    const count = Math.max(1, Number($('questionCountInput').value || loadedQuestions.length));
-    const selected = shuffle(loadedQuestions).slice(0, count).map(snapshotQuestion);
+    const hasClassroomList = !!session?.classroom?.questionBankListId;
+    const count = hasClassroomList
+        ? loadedQuestions.length
+        : Math.max(1, Number($('questionCountInput').value || loadedQuestions.length));
+    const selectedQuestions = hasClassroomList
+        ? loadedQuestions
+        : shuffle(loadedQuestions).slice(0, count);
+    const selected = selectedQuestions.map(snapshotQuestion);
     quiz = {
         questions: selected,
         answers: selected.map(q => emptyAnswer(q)),
@@ -377,7 +428,6 @@ async function submitQuiz() {
         stopTimer();
         renderResult(submission);
         showOnly('result');
-        await loadSubmissionHistory();
         setStatus('Submitted successfully.');
     } catch (error) {
         toast(error.message || 'Submit failed. Reconnect and try again.');
@@ -446,33 +496,6 @@ function renderResult(submission) {
     renderRich(els.reviewList);
 }
 
-async function loadSubmissionHistory() {
-    if (!session) return;
-    const snap = await getDocs(query(collection(db, COLLECTIONS.submissions), where('studentKey', '==', session.studentKey)));
-    submissions = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (b.submittedAtMillis || 0) - (a.submittedAtMillis || 0));
-    els.historyView.hidden = false;
-    renderHistory();
-}
-
-function renderHistory() {
-    els.historyList.innerHTML = submissions.length ? submissions.map(sub => `
-        <article class="history-card">
-            <div class="history-head">
-                <strong>${new Date(sub.submittedAtMillis || Date.now()).toLocaleString()}</strong>
-                <span class="step-chip">${sub.correctCount}/${sub.gradableCount}</span>
-            </div>
-            <div class="score-line">
-                <span>${sub.questionCount} questions</span>
-                <span>${sub.answeredCount} answered</span>
-                <span>${esc(sub.subject || 'Any subject')}</span>
-                <span>${esc((sub.chapters || []).join(', ') || 'Any chapter')}</span>
-            </div>
-        </article>
-    `).join('') : '<div class="quiz-summary">No previous submissions for this student.</div>';
-}
-
 function isAnswered(question, answer) {
     if (question.type === 'mcq') return !!answer.selectedOptions?.length;
     if (question.type === 'true_false') return answer.trueFalseAnswer !== null;
@@ -502,7 +525,6 @@ function showOnly(view) {
     els.setupView.hidden = view !== 'setup';
     els.quizView.hidden = view !== 'quiz';
     els.resultView.hidden = view !== 'result';
-    els.historyView.hidden = !session;
 }
 
 function resetApp() {
@@ -510,15 +532,28 @@ function resetApp() {
     loadedQuestions = [];
     quiz = null;
     currentIndex = 0;
-    submissions = [];
     stopTimer();
     els.resetBtn.hidden = true;
     els.phoneHintBox.hidden = true;
+    els.quizFilterControls.hidden = false;
+    $('loadQuestionsBtn').hidden = false;
     els.startQuizBtn.disabled = true;
     els.questionLoadSummary.textContent = 'Load questions to see availability.';
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
     showLoginError('');
     setStatus('Enter your classroom details to begin');
     showOnly('login');
+}
+
+function saveVerifiedSession() {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+        classroomId: session.classroomId,
+        sectionId: session.sectionId,
+        admissionNo: session.admissionNo,
+        studentName: session.studentName,
+        studentKey: session.studentKey,
+        classroomLabel: els.classroomLabel.textContent
+    }));
 }
 
 function startTimer() {

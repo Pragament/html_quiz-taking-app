@@ -29,7 +29,8 @@ Document shape:
   createdDate: 1788177950135,
   creatorId: 'SPwA523UClVxTpX5m8XPMu5Imiy1',
   sectionId: 'QQAP9O4UyvlaYhqz7jdE',
-  sectionName: 'DSS grade 8'
+  sectionName: 'DSS grade 8',
+  questionBankListId: 'qb_lists_v1 document id'
 }
 ```
 
@@ -39,6 +40,7 @@ Important fields:
 - `classEnabled` - must be exactly `true` for login.
 - `sectionId` - points to the student subcollection.
 - `className` and `sectionName` - shown after verification.
+- `questionBankListId` - optional reference to a private question list selected by the teacher. When present, the quiz app loads only that list's published questions in `questionIds` order.
 
 ### `classSections/{sectionId}/students`
 
@@ -90,6 +92,34 @@ Supported question types:
 - `true_false` - uses `trueAnswer`.
 - `fib` - uses `fibBanks`, including multiple banks in one question.
 - `short_answer` - stores the student response but does not auto-grade.
+
+### `qb_lists_v1`
+
+Path:
+
+```txt
+/qb_lists_v1/{listId}
+```
+
+Document shape:
+
+```js
+{
+  name: 'Favorites',
+  ownerUid: 'firebase-auth-uid',
+  questionIds: [
+    'qb_questions_v1 document id'
+  ],
+  createdAt: Timestamp,
+  updatedAt: Timestamp
+}
+```
+
+Important fields:
+
+- `ownerUid` - must match the signed-in teacher UID for the list to appear in the classroom editor.
+- `name` - shown in the classroom question-list dropdown.
+- `questionIds` - stores question document IDs, not embedded question snapshots. The student quiz app preserves this order when a classroom references the list.
 
 ## Collection Written By This App
 
@@ -155,6 +185,8 @@ Field notes:
 - Classroom fallback query: `classrooms where classCode == enteredCode`
 - Student direct read: `/classSections/{sectionId}/students/{admissionNo}`
 - Student fallback query: `students where admissionNo == enteredAdmissionNo`
+- Question list direct read: `/qb_lists_v1/{questionBankListId}`
+- Listed question direct reads: `/qb_questions_v1/{questionId}` for each list `questionIds` entry
 - Question read: `qb_questions_v1 where status == "published"`
 - Submission history: `qb_quiz_submissions_v1 where studentKey == verifiedStudentKey`
 
