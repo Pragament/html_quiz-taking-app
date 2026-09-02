@@ -363,6 +363,53 @@ a.btn {
     gap: 9px;
 }
 
+.history-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    cursor: pointer;
+    list-style-position: inside;
+}
+
+.history-summary-main,
+.submission-review {
+    display: grid;
+    gap: 9px;
+}
+
+.submission-review {
+    margin-top: 10px;
+}
+
+.review-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.review-tab {
+    min-height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--text);
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.review-tab:hover {
+    border-color: var(--line-strong);
+    background: #f1f5f9;
+}
+
+.review-tab.active {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: #fff;
+}
+
 .score-line {
     color: var(--muted);
     font-size: 13px;
@@ -389,6 +436,42 @@ a.btn {
 .toast.show {
     opacity: 1;
     transform: translateY(0);
+}
+
+.tour-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(16, 34, 53, 0.45);
+}
+
+.tour-card {
+    width: min(520px, 100%);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: var(--shadow);
+    padding: 16px;
+}
+
+.tour-choice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0 14px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.tour-highlight {
+    position: relative;
+    outline: 3px solid #f2b84b;
+    outline-offset: 4px;
+    z-index: 2;
 }
 
 @media (max-width: 900px) {

@@ -35,7 +35,20 @@ const els = {
     toast: $('toast')
 };
 
+if (window.mermaid) {
+    window.mermaid.initialize({ startOnLoad: false, theme: 'default' });
+}
+
 loadSubmissionHistory();
+
+els.historyList.addEventListener('click', event => {
+    const tab = event.target.closest('[data-review-filter]');
+    if (!tab) return;
+    event.preventDefault();
+    const review = tab.closest('.submission-review');
+    if (!review) return;
+    setReviewFilter(review, tab.dataset.reviewFilter);
+});
 
 async function loadSubmissionHistory() {
     const verifiedSession = readVerifiedSession();
@@ -76,19 +89,108 @@ function readVerifiedSession() {
 
 function renderHistory(submissions) {
     els.historyList.innerHTML = submissions.length ? submissions.map(sub => `
-        <article class="history-card">
-            <div class="history-head">
-                <strong>${new Date(sub.submittedAtMillis || Date.now()).toLocaleString()}</strong>
+        <details class="history-card">
+            <summary class="history-summary">
+                <span class="history-summary-main">
+                    <strong>${new Date(sub.submittedAtMillis || Date.now()).toLocaleString()}</strong>
+                    <span class="score-line">
+                        <span>${sub.questionCount} questions</span>
+                        <span>${sub.answeredCount} answered</span>
+                        <span>${esc(sub.subject || 'Any subject')}</span>
+                        <span>${esc((sub.chapters || []).join(', ') || 'Any chapter')}</span>
+                    </span>
+                </span>
                 <span class="step-chip">${sub.correctCount}/${sub.gradableCount}</span>
+            </summary>
+            <div class="submission-review">
+                ${renderReviewTabs(sub.answers || [])}
+                ${renderSubmissionAnswers(sub.answers || [])}
             </div>
-            <div class="score-line">
-                <span>${sub.questionCount} questions</span>
-                <span>${sub.answeredCount} answered</span>
-                <span>${esc(sub.subject || 'Any subject')}</span>
-                <span>${esc((sub.chapters || []).join(', ') || 'Any chapter')}</span>
-            </div>
-        </article>
+        </details>
     `).join('') : '<div class="quiz-summary">No previous submissions for this student.</div>';
+    renderRich(els.historyList);
+}
+
+function renderReviewTabs(answers) {
+    const counts = {
+        all: answers.length,
+        correct: answers.filter(answer => answer.isCorrect === true).length,
+        incorrect: answers.filter(answer => answer.isCorrect === false).length,
+        manual: answers.filter(answer => answer.isCorrect === null).length
+    };
+    return `
+        <div class="review-tabs" role="tablist" aria-label="Filter question review">
+            <button class="review-tab active" type="button" data-review-filter="all">All (${counts.all})</button>
+            <button class="review-tab" type="button" data-review-filter="correct">Correct (${counts.correct})</button>
+            <button class="review-tab" type="button" data-review-filter="incorrect">Incorrect (${counts.incorrect})</button>
+            <button class="review-tab" type="button" data-review-filter="manual">Manual (${counts.manual})</button>
+        </div>
+    `;
+}
+
+function renderSubmissionAnswers(answers) {
+    if (!answers.length) return '<div class="quiz-summary">No question details were stored for this submission.</div>';
+    return answers.map((answer, index) => `
+        <article class="review-card" data-review-result="${answerResult(answer)}">
+            <div class="review-head">
+                <strong>Question ${index + 1}</strong>
+                ${answerStatusHtml(answer)}
+            </div>
+            <div class="rich-content">${sanitizeRich(answer.promptHtml)}</div>
+            <div><strong>Your answer:</strong> ${esc(answer.displayAnswer || 'Not answered')}</div>
+            <div><strong>Correct answer:</strong> ${esc(answer.correctAnswer || 'Teacher review')}</div>
+        </article>
+    `).join('');
+}
+
+function setReviewFilter(review, filter) {
+    review.querySelectorAll('[data-review-filter]').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.reviewFilter === filter);
+    });
+    review.querySelectorAll('[data-review-result]').forEach(card => {
+        card.hidden = filter !== 'all' && card.dataset.reviewResult !== filter;
+    });
+}
+
+function answerResult(answer) {
+    if (answer.isCorrect === null) return 'manual';
+    return answer.isCorrect ? 'correct' : 'incorrect';
+}
+
+function answerStatusHtml(answer) {
+    if (answer.isCorrect === null) return '<span class="status-chip manual">Manual Review</span>';
+    return answer.isCorrect
+        ? '<span class="status-chip correct">Correct</span>'
+        : '<span class="status-chip wrong">Incorrect</span>';
+}
+
+async function renderRich(root) {
+    root.querySelectorAll('.math-token').forEach(token => {
+        const latex = token.dataset.latex;
+        if (latex && window.katex) token.innerHTML = window.katex.renderToString(latex, { throwOnError: false });
+    });
+    if (!window.mermaid) return;
+    for (const token of root.querySelectorAll('.mermaid-token')) {
+        const code = token.dataset.code || token.textContent;
+        try {
+            const { svg } = await window.mermaid.render(`history_diag_${Date.now()}_${Math.random().toString(16).slice(2)}`, code);
+            token.innerHTML = svg;
+        } catch {
+            token.innerHTML = '<code>Diagram unavailable</code>';
+        }
+    }
+}
+
+function sanitizeRich(value) {
+    const template = document.createElement('template');
+    template.innerHTML = String(value || '');
+    template.content.querySelectorAll('script, iframe, object, embed').forEach(node => node.remove());
+    template.content.querySelectorAll('*').forEach(node => {
+        Array.from(node.attributes).forEach(attr => {
+            if (/^on/i.test(attr.name)) node.removeAttribute(attr.name);
+        });
+    });
+    return template.innerHTML;
 }
 
 function esc(value) {

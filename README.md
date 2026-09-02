@@ -8,23 +8,24 @@ Independent responsive quiz-taking app for students. It verifies a student throu
 - `submissions.html` - standalone past-submissions page for the verified student.
 - `styles.css` - responsive phone, tablet, and desktop layout.
 - `app.js` - Firebase reads/writes, student verification, quiz state, grading, and verified-session storage.
-- `submissions.js` - Firebase read for the standalone past-submissions page.
+- `submissions.js` - Firebase read and detailed answer review for the standalone past-submissions page.
 - `FIRESTORE_SCHEMA.md` - collection and document schema notes.
 - `firestore.rules` - starter rules for quiz-related access.
 
 ## Flow
 
 1. Student enters `classCode`, `admissionNo`, and full `phone`.
-2. App reads `/classrooms/{classCode}` first, then falls back to `classrooms where classCode == enteredCode`.
-3. Login continues only when `classEnabled === true`.
-4. App reads `/classSections/{sectionId}/students/{admissionNo}` first, then falls back to querying by `admissionNo`.
-5. App shows the last 3 digits of the registered phone and verifies the full entered phone.
-6. The homepage Past Submissions button opens a standalone history page; after verification, the student session is stored locally so that page can load the verified student's attempts.
-7. If the classroom has `questionBankListId`, the app hides manual filters, hides Load Questions, reads that `qb_lists_v1` document automatically, and loads only its published `questionIds` from `qb_questions_v1` in list order.
-8. If the classroom does not have `questionBankListId`, the student loads published questions from `qb_questions_v1` using the setup filters.
-9. After Start, the selected question list is local in memory so navigation continues offline until Submit.
-10. Submit writes to `qb_quiz_submissions_v1`.
-11. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first.
+2. On page load, the app prompts for a guided tour unless `quizActivityHideGuidedTour` is saved in local storage.
+3. App reads `/classrooms/{classCode}` first, then falls back to `classrooms where classCode == enteredCode`.
+4. Login continues only when `classEnabled === true`.
+5. App reads `/classSections/{sectionId}/students/{admissionNo}` first, then falls back to querying by `admissionNo`.
+6. App shows the last 3 digits of the registered phone and verifies the full entered phone.
+7. The homepage Past Submissions button opens a standalone history page; after verification, the student session is stored locally so that page can load the verified student's attempts.
+8. If the classroom has `questionBankListId`, the app hides manual filters, hides Load Questions, reads that `qb_lists_v1` document automatically, and loads only its published `questionIds` from `qb_questions_v1` in list order.
+9. If the classroom does not have `questionBankListId`, the student loads published questions from `qb_questions_v1` using the setup filters.
+10. After Start, the selected question list is local in memory so navigation continues offline until Submit.
+11. Submit writes to `qb_quiz_submissions_v1`.
+12. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first, with expandable question-by-question review filtered by All, Correct, Incorrect, or Manual.
 
 ## Run Locally
 

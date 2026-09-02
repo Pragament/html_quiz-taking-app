@@ -47,6 +47,29 @@ let toastTimer = null;
 let timerInterval = null;
 
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
+const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
+const TOUR_STEPS = [
+    {
+        title: 'Student Login',
+        text: 'Enter the class code, admission number, and registered phone to verify the student.',
+        selector: '#loginView'
+    },
+    {
+        title: 'Verify Student',
+        text: 'After verification, the quiz setup appears. Classroom question lists load automatically when the teacher has selected one.',
+        selector: '#verifyBtn'
+    },
+    {
+        title: 'Past Submissions',
+        text: 'Open past attempts from the homepage and expand a submission to review each question.',
+        selector: '#viewSubmissionsBtn'
+    },
+    {
+        title: 'Start Quiz',
+        text: 'Once questions are loaded, start the quiz. The active quiz stays on this page until submission.',
+        selector: '#startQuizBtn'
+    }
+];
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -74,14 +97,25 @@ const els = {
     resultSummary: $('resultSummary'),
     reviewList: $('reviewList'),
     timerLabel: $('timerLabel'),
+    tourBackdrop: $('tourBackdrop'),
+    tourTitle: $('tourTitle'),
+    tourText: $('tourText'),
+    tourStepLabel: $('tourStepLabel'),
+    tourDontShowAgain: $('tourDontShowAgain'),
+    tourSkipBtn: $('tourSkipBtn'),
+    tourBackBtn: $('tourBackBtn'),
+    tourNextBtn: $('tourNextBtn'),
     toast: $('toast')
 };
+
+let currentTourStep = -1;
 
 if (window.mermaid) {
     window.mermaid.initialize({ startOnLoad: false, theme: 'default' });
 }
 
 bindEvents();
+maybePromptGuidedTour();
 
 function bindEvents() {
     $('verifyBtn').addEventListener('click', verifyStudent);
@@ -93,6 +127,17 @@ function bindEvents() {
     els.resetBtn.addEventListener('click', resetApp);
     els.viewSubmissionsBtn.addEventListener('click', () => {
         window.location.href = 'submissions.html';
+    });
+    els.tourSkipBtn.addEventListener('click', closeGuidedTour);
+    els.tourBackBtn.addEventListener('click', () => showTourStep(currentTourStep - 1));
+    els.tourNextBtn.addEventListener('click', () => {
+        if (currentTourStep < 0) {
+            showTourStep(0);
+        } else if (currentTourStep < TOUR_STEPS.length - 1) {
+            showTourStep(currentTourStep + 1);
+        } else {
+            closeGuidedTour();
+        }
     });
     ['classFilter', 'subjectFilter', 'chapterFilter', 'difficultyFilter', 'questionCountInput'].forEach(id => {
         $(id).addEventListener('input', () => {
@@ -106,6 +151,49 @@ function bindEvents() {
             els.questionLoadSummary.textContent = 'Load questions to see availability.';
         });
     });
+}
+
+function maybePromptGuidedTour() {
+    if (localStorage.getItem(TOUR_OPT_OUT_KEY) === 'true') return;
+    currentTourStep = -1;
+    els.tourBackdrop.hidden = false;
+    els.tourTitle.textContent = 'Take a Guided Tour?';
+    els.tourText.textContent = 'A quick walkthrough can show the main steps before you begin.';
+    els.tourStepLabel.textContent = 'Tour';
+    els.tourBackBtn.hidden = true;
+    els.tourNextBtn.textContent = 'Start Tour';
+    clearTourHighlights();
+}
+
+function showTourStep(index) {
+    currentTourStep = Math.max(0, Math.min(TOUR_STEPS.length - 1, index));
+    const step = TOUR_STEPS[currentTourStep];
+    els.tourTitle.textContent = step.title;
+    els.tourText.textContent = step.text;
+    els.tourStepLabel.textContent = `${currentTourStep + 1}/${TOUR_STEPS.length}`;
+    els.tourBackBtn.hidden = currentTourStep === 0;
+    els.tourNextBtn.textContent = currentTourStep === TOUR_STEPS.length - 1 ? 'Done' : 'Next';
+    highlightTourTarget(step.selector);
+}
+
+function closeGuidedTour() {
+    if (els.tourDontShowAgain.checked) {
+        localStorage.setItem(TOUR_OPT_OUT_KEY, 'true');
+    }
+    els.tourBackdrop.hidden = true;
+    clearTourHighlights();
+}
+
+function highlightTourTarget(selector) {
+    clearTourHighlights();
+    const target = document.querySelector(selector);
+    if (!target || target.closest('[hidden]') || !target.getClientRects().length) return;
+    target.classList.add('tour-highlight');
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function clearTourHighlights() {
+    document.querySelectorAll('.tour-highlight').forEach(node => node.classList.remove('tour-highlight'));
 }
 
 async function verifyStudent() {
