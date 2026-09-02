@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
     <link rel="stylesheet" href="styles.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
     <header class="topbar">
@@ -16,6 +18,7 @@
             <p id="statusText">Enter your classroom details to begin</p>
         </div>
         <div class="topbar-actions">
+            <button class="btn" id="tourBtn">Tour</button>
             <button class="btn" id="viewSubmissionsBtn">Past Submissions</button>
             <button class="btn" id="resetBtn" hidden>Exit Quiz</button>
         </div>
@@ -30,15 +33,15 @@
             <div class="form-grid">
                 <label class="field">
                     <span>Class Code</span>
-                    <input id="classCodeInput" inputmode="numeric" autocomplete="off" placeholder="176260" />
+                    <input id="classCodeInput" inputmode="numeric" autocomplete="off" placeholder="Enter class code" />
                 </label>
                 <label class="field">
                     <span>Admission No</span>
-                    <input id="admissionNoInput" autocomplete="off" placeholder="102" />
+                    <input id="admissionNoInput" autocomplete="off" placeholder="Enter admission number" />
                 </label>
                 <label class="field">
                     <span>Full Phone</span>
-                    <input id="phoneInput" inputmode="tel" autocomplete="tel" placeholder="Registered phone" />
+                    <input id="phoneInput" inputmode="tel" autocomplete="tel" placeholder="Enter registered phone number" />
                 </label>
             </div>
             <div class="hint-box" id="phoneHintBox" hidden></div>
@@ -129,29 +132,6 @@
             <div id="reviewList" class="review-list"></div>
         </section>
     </main>
-
-    <div class="tour-backdrop" id="tourBackdrop" hidden>
-        <section class="tour-card" role="dialog" aria-modal="true" aria-labelledby="tourTitle">
-            <div class="section-title">
-                <div>
-                    <h2 id="tourTitle">Take a Guided Tour?</h2>
-                    <p id="tourText">A quick walkthrough can show the main steps before you begin.</p>
-                </div>
-                <span class="step-chip" id="tourStepLabel">Tour</span>
-            </div>
-            <label class="tour-choice">
-                <input type="checkbox" id="tourDontShowAgain" />
-                <span>Do not show this tour again on refresh</span>
-            </label>
-            <div class="actions spread">
-                <button class="btn" id="tourSkipBtn">Skip</button>
-                <div class="actions">
-                    <button class="btn" id="tourBackBtn" hidden>Back</button>
-                    <button class="btn primary" id="tourNextBtn">Start Tour</button>
-                </div>
-            </div>
-        </section>
-    </div>
 
     <div id="toast" class="toast"></div>
     <script type="module" src="app.js"></script>

@@ -438,40 +438,32 @@ a.btn {
     transform: translateY(0);
 }
 
-.tour-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 20;
-    display: grid;
-    place-items: center;
-    padding: 16px;
-    background: rgba(16, 34, 53, 0.45);
-}
-
-.tour-card {
-    width: min(520px, 100%);
-    border: 1px solid var(--line);
+.introjs-tooltip {
+    min-width: min(340px, calc(100vw - 32px));
     border-radius: 8px;
-    background: var(--panel);
-    box-shadow: var(--shadow);
-    padding: 16px;
+    color: var(--text);
 }
 
-.tour-choice {
+.introjs-tooltip-title {
+    color: var(--text);
+}
+
+.introjs-button {
+    border-radius: 7px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    text-shadow: none;
+}
+
+.intro-opt-out {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin: 12px 0 14px;
+    gap: 7px;
+    margin-top: 12px;
     color: var(--muted);
     font-size: 13px;
     font-weight: 700;
-}
-
-.tour-highlight {
-    position: relative;
-    outline: 3px solid #f2b84b;
-    outline-offset: 4px;
-    z-index: 2;
 }
 
 @media (max-width: 900px) {

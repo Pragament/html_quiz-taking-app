@@ -15,7 +15,7 @@ Independent responsive quiz-taking app for students. It verifies a student throu
 ## Flow
 
 1. Student enters `classCode`, `admissionNo`, and full `phone`.
-2. On page load, the app prompts for a guided tour unless `quizActivityHideGuidedTour` is saved in local storage.
+2. On page load, Intro.js prompts for a guided tour unless `quizActivityHideGuidedTour` is saved in local storage. The header Tour button can relaunch it later.
 3. App reads `/classrooms/{classCode}` first, then falls back to `classrooms where classCode == enteredCode`.
 4. Login continues only when `classEnabled === true`.
 5. App reads `/classSections/{sectionId}/students/{admissionNo}` first, then falls back to querying by `admissionNo`.

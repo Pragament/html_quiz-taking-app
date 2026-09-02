@@ -45,29 +45,29 @@ let quiz = null;
 let currentIndex = 0;
 let toastTimer = null;
 let timerInterval = null;
+let tourOptOutSelected = false;
 
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
 const TOUR_STEPS = [
     {
+        title: 'Take a Guided Tour?',
+        intro: 'A quick walkthrough can show the main steps before you begin.<label class="intro-opt-out"><input type="checkbox" id="tourOptOutInput"> Do not show this tour again on refresh</label>'
+    },
+    {
         title: 'Student Login',
-        text: 'Enter the class code, admission number, and registered phone to verify the student.',
-        selector: '#loginView'
+        intro: 'Enter the class code, admission number, and registered phone to verify the student.',
+        element: '#loginView'
     },
     {
         title: 'Verify Student',
-        text: 'After verification, the quiz setup appears. Classroom question lists load automatically when the teacher has selected one.',
-        selector: '#verifyBtn'
+        intro: 'After verification, the quiz setup appears. Classroom question lists load automatically when the teacher has selected one.',
+        element: '#verifyBtn'
     },
     {
         title: 'Past Submissions',
-        text: 'Open past attempts from the homepage and expand a submission to review each question.',
-        selector: '#viewSubmissionsBtn'
-    },
-    {
-        title: 'Start Quiz',
-        text: 'Once questions are loaded, start the quiz. The active quiz stays on this page until submission.',
-        selector: '#startQuizBtn'
+        intro: 'Open past attempts from the homepage and expand a submission to review each question.',
+        element: '#viewSubmissionsBtn'
     }
 ];
 
@@ -75,6 +75,7 @@ const $ = (id) => document.getElementById(id);
 const els = {
     statusText: $('statusText'),
     resetBtn: $('resetBtn'),
+    tourBtn: $('tourBtn'),
     viewSubmissionsBtn: $('viewSubmissionsBtn'),
     loginView: $('loginView'),
     setupView: $('setupView'),
@@ -97,18 +98,8 @@ const els = {
     resultSummary: $('resultSummary'),
     reviewList: $('reviewList'),
     timerLabel: $('timerLabel'),
-    tourBackdrop: $('tourBackdrop'),
-    tourTitle: $('tourTitle'),
-    tourText: $('tourText'),
-    tourStepLabel: $('tourStepLabel'),
-    tourDontShowAgain: $('tourDontShowAgain'),
-    tourSkipBtn: $('tourSkipBtn'),
-    tourBackBtn: $('tourBackBtn'),
-    tourNextBtn: $('tourNextBtn'),
     toast: $('toast')
 };
-
-let currentTourStep = -1;
 
 if (window.mermaid) {
     window.mermaid.initialize({ startOnLoad: false, theme: 'default' });
@@ -125,18 +116,13 @@ function bindEvents() {
     $('nextQuestionBtn').addEventListener('click', () => moveQuestion(1));
     $('submitQuizBtn').addEventListener('click', submitQuiz);
     els.resetBtn.addEventListener('click', resetApp);
+    els.tourBtn.addEventListener('click', () => startGuidedTour());
     els.viewSubmissionsBtn.addEventListener('click', () => {
         window.location.href = 'submissions.html';
     });
-    els.tourSkipBtn.addEventListener('click', closeGuidedTour);
-    els.tourBackBtn.addEventListener('click', () => showTourStep(currentTourStep - 1));
-    els.tourNextBtn.addEventListener('click', () => {
-        if (currentTourStep < 0) {
-            showTourStep(0);
-        } else if (currentTourStep < TOUR_STEPS.length - 1) {
-            showTourStep(currentTourStep + 1);
-        } else {
-            closeGuidedTour();
+    document.addEventListener('change', event => {
+        if (event.target.id === 'tourOptOutInput') {
+            tourOptOutSelected = event.target.checked;
         }
     });
     ['classFilter', 'subjectFilter', 'chapterFilter', 'difficultyFilter', 'questionCountInput'].forEach(id => {
@@ -155,45 +141,30 @@ function bindEvents() {
 
 function maybePromptGuidedTour() {
     if (localStorage.getItem(TOUR_OPT_OUT_KEY) === 'true') return;
-    currentTourStep = -1;
-    els.tourBackdrop.hidden = false;
-    els.tourTitle.textContent = 'Take a Guided Tour?';
-    els.tourText.textContent = 'A quick walkthrough can show the main steps before you begin.';
-    els.tourStepLabel.textContent = 'Tour';
-    els.tourBackBtn.hidden = true;
-    els.tourNextBtn.textContent = 'Start Tour';
-    clearTourHighlights();
+    startGuidedTour();
 }
 
-function showTourStep(index) {
-    currentTourStep = Math.max(0, Math.min(TOUR_STEPS.length - 1, index));
-    const step = TOUR_STEPS[currentTourStep];
-    els.tourTitle.textContent = step.title;
-    els.tourText.textContent = step.text;
-    els.tourStepLabel.textContent = `${currentTourStep + 1}/${TOUR_STEPS.length}`;
-    els.tourBackBtn.hidden = currentTourStep === 0;
-    els.tourNextBtn.textContent = currentTourStep === TOUR_STEPS.length - 1 ? 'Done' : 'Next';
-    highlightTourTarget(step.selector);
+function startGuidedTour() {
+    if (!window.introJs) return;
+    tourOptOutSelected = false;
+    const tour = window.introJs.tour ? window.introJs.tour() : window.introJs();
+    tour.setOptions({
+        steps: TOUR_STEPS,
+        showProgress: true,
+        showBullets: false,
+        nextLabel: 'Next',
+        prevLabel: 'Back',
+        doneLabel: 'Done',
+        exitOnOverlayClick: true,
+        tooltipRenderAsHtml: true
+    });
+    tour.oncomplete(saveTourPreference);
+    tour.onexit(saveTourPreference);
+    tour.start();
 }
 
-function closeGuidedTour() {
-    if (els.tourDontShowAgain.checked) {
-        localStorage.setItem(TOUR_OPT_OUT_KEY, 'true');
-    }
-    els.tourBackdrop.hidden = true;
-    clearTourHighlights();
-}
-
-function highlightTourTarget(selector) {
-    clearTourHighlights();
-    const target = document.querySelector(selector);
-    if (!target || target.closest('[hidden]') || !target.getClientRects().length) return;
-    target.classList.add('tour-highlight');
-    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-}
-
-function clearTourHighlights() {
-    document.querySelectorAll('.tour-highlight').forEach(node => node.classList.remove('tour-highlight'));
+function saveTourPreference() {
+    if (tourOptOutSelected) localStorage.setItem(TOUR_OPT_OUT_KEY, 'true');
 }
 
 async function verifyStudent() {
