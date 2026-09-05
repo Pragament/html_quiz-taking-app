@@ -131,6 +131,14 @@ Path:
 /qb_quiz_submissions_v1/{submissionId}
 ```
 
+New submissions use a deterministic ID:
+
+```txt
+encodeURIComponent(classroomId)__encodeURIComponent(sectionId)__encodeURIComponent(admissionNo)
+```
+
+That gives each admission number at most one submission within a classroom.
+
 Document shape:
 
 ```js
@@ -174,6 +182,7 @@ Document shape:
 Field notes:
 
 - `studentKey` is `${sectionId}_${admissionNo}` and is used to load the student's past submissions.
+- `submissionId` is deterministic for new writes so duplicate attempts from the same admission number in the same classroom are blocked.
 - `answers` stores question and answer snapshots so review still works if the question bank changes later.
 - `isCorrect` is `true` or `false` for MCQ, True/False, and FIB. It is `null` for short answers.
 - `submittedAt` is a server timestamp.

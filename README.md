@@ -24,7 +24,7 @@ Independent responsive quiz-taking app for students. It verifies a student throu
 8. If the classroom has `questionBankListId`, the app hides manual filters, hides Load Questions, reads that `qb_lists_v1` document automatically, and loads only its published `questionIds` from `qb_questions_v1` in list order.
 9. If the classroom does not have `questionBankListId`, the student loads published questions from `qb_questions_v1` using the setup filters.
 10. After Start, the selected question list is local in memory so navigation continues offline until Submit.
-11. Submit writes to `qb_quiz_submissions_v1`.
+11. Submit writes to `qb_quiz_submissions_v1` using one deterministic submission document per classroom, section, and admission number.
 12. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first, with expandable question-by-question review filtered by All, Correct, Incorrect, or Manual. If `answers[].aiReview` exists, students also see marks, max marks, and the review reason.
 
 ## Run Locally
@@ -52,3 +52,4 @@ The app loads Firebase, KaTeX, and Mermaid from CDNs, so internet is required fo
 - Classrooms with `questionBankListId` use the teacher-selected list order and do not shuffle questions.
 - Published question reads use `qb_questions_v1 where status == "published"` when no classroom list is selected.
 - Student submission history uses `studentKey = sectionId_admissionNo`.
+- A student can have only one submission per classroom; duplicate attempts are blocked before write.

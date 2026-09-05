@@ -1,6 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
-    addDoc,
     collection,
     doc,
     getDoc,
@@ -8,6 +7,7 @@ import {
     getFirestore,
     query,
     serverTimestamp,
+    setDoc,
     where
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
@@ -547,7 +547,12 @@ async function submitQuiz() {
     };
     try {
         setStatus('Submitting quiz...');
-        await addDoc(collection(db, COLLECTIONS.submissions), submission);
+        if (await hasExistingClassroomSubmission()) {
+            toast('A submission already exists for this admission number in this classroom.');
+            setStatus('Duplicate submission blocked');
+            return;
+        }
+        await setDoc(doc(db, COLLECTIONS.submissions, submissionDocId()), submission);
         quiz.submitted = true;
         stopTimer();
         renderResult(submission);
@@ -557,6 +562,26 @@ async function submitQuiz() {
         toast(error.message || 'Submit failed. Reconnect and try again.');
         setStatus('Submit failed');
     }
+}
+
+async function hasExistingClassroomSubmission() {
+    const submissionRef = doc(db, COLLECTIONS.submissions, submissionDocId());
+    const directSnap = await getDoc(submissionRef);
+    if (directSnap.exists()) return true;
+
+    const snap = await getDocs(query(
+        collection(db, COLLECTIONS.submissions),
+        where('studentKey', '==', session.studentKey)
+    ));
+    return snap.docs.some(existing => existing.data().classroomId === session.classroomId);
+}
+
+function submissionDocId() {
+    return [
+        session.classroomId,
+        session.sectionId,
+        session.admissionNo
+    ].map(value => encodeURIComponent(String(value || 'unknown'))).join('__');
 }
 
 function gradeAnswer(question, answer) {
