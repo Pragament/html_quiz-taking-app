@@ -48,6 +48,7 @@ let timerInterval = null;
 let tourOptOutSelected = false;
 let urlClassCode = '';
 let urlClassroomResult = null;
+let shouldShowRecentSubmission = false;
 
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
@@ -123,7 +124,7 @@ function bindEvents() {
     els.resetBtn.addEventListener('click', resetApp);
     els.tourBtn.addEventListener('click', () => startGuidedTour());
     els.viewSubmissionsBtn.addEventListener('click', () => {
-        window.location.href = 'submissions.html';
+        window.location.href = submissionsUrl();
     });
     document.addEventListener('change', event => {
         if (event.target.id === 'tourOptOutInput') {
@@ -236,6 +237,10 @@ async function verifyStudent() {
         showOnly('setup');
         els.resetBtn.hidden = false;
         els.viewSubmissionsBtn.hidden = false;
+        if (shouldShowRecentSubmission) {
+            window.location.href = submissionsUrl({ showRecent: true });
+            return;
+        }
         if (session.classroom.questionBankListId) await loadPublishedQuestions();
     } catch (error) {
         showLoginError(error.message || 'Unable to verify student.');
@@ -244,9 +249,11 @@ async function verifyStudent() {
 }
 
 async function initializeClassroomFromUrl() {
-    urlClassCode = new URLSearchParams(window.location.search).get('classCode')?.trim()
-        || new URLSearchParams(window.location.search).get('code')?.trim()
+    const params = new URLSearchParams(window.location.search);
+    urlClassCode = params.get('classCode')?.trim()
+        || params.get('code')?.trim()
         || '';
+    shouldShowRecentSubmission = params.get('show-recent') === '1';
     if (!urlClassCode) return;
 
     els.classCodeInput.value = urlClassCode;
@@ -271,6 +278,12 @@ async function initializeClassroomFromUrl() {
         showLoginError(error.message || 'Unable to load classroom from the URL.');
         setStatus('Classroom lookup failed');
     }
+}
+
+function submissionsUrl(options = {}) {
+    const params = new URLSearchParams();
+    if (options.showRecent) params.set('show-recent', '1');
+    return `submissions.html${params.toString() ? `?${params}` : ''}`;
 }
 
 async function findClassroom(classCode) {

@@ -22,6 +22,7 @@ const COLLECTIONS = {
 };
 
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
+const SHOW_RECENT_PARAM = 'show-recent';
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
@@ -88,8 +89,9 @@ function readVerifiedSession() {
 }
 
 function renderHistory(submissions) {
-    els.historyList.innerHTML = submissions.length ? submissions.map(sub => `
-        <details class="history-card">
+    const showRecent = new URLSearchParams(window.location.search).get(SHOW_RECENT_PARAM) === '1';
+    els.historyList.innerHTML = submissions.length ? submissions.map((sub, index) => `
+        <details class="history-card" ${showRecent && index === 0 ? 'open' : ''}>
             <summary class="history-summary">
                 <span class="history-summary-main">
                     <strong>${new Date(sub.submittedAtMillis || Date.now()).toLocaleString()}</strong>
@@ -111,6 +113,10 @@ function renderHistory(submissions) {
         </details>
     `).join('') : '<div class="quiz-summary">No previous submissions for this student.</div>';
     renderRich(els.historyList);
+    if (showRecent && submissions.length) {
+        els.statusText.textContent = 'Showing most recent submission.';
+        els.historyList.querySelector('.history-card')?.scrollIntoView({ block: 'start' });
+    }
 }
 
 function renderReviewTabs(answers) {
