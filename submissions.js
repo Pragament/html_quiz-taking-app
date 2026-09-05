@@ -133,11 +133,11 @@ function renderReviewTabs(answers) {
 function renderSubmissionDetails(submission) {
     return `
         <div class="submission-details">
-            <span><strong>Student:</strong> ${esc(submission.studentName || 'Student')}</span>
-            <span><strong>Admission:</strong> ${esc(submission.admissionNo || 'Not recorded')}</span>
-            <span><strong>Classroom:</strong> ${esc(submission.classroomId || 'Not recorded')}</span>
-            <span><strong>Class:</strong> ${esc(submission.className || 'Any class')}</span>
-            <span><strong>Difficulty:</strong> ${esc(submission.difficulty || 'Any difficulty')}</span>
+            <span><strong>Questions:</strong> ${esc(submission.questionCount || 0)}</span>
+            <span><strong>Answered:</strong> ${esc(submission.answeredCount || 0)}</span>
+            <span><strong>Score:</strong> ${esc(submission.correctCount || 0)}/${esc(submission.gradableCount || 0)}</span>
+            <span><strong>Subject:</strong> ${esc(submission.subject || 'Any subject')}</span>
+            <span><strong>Chapters:</strong> ${esc((submission.chapters || []).join(', ') || 'Any chapter')}</span>
         </div>
     `;
 }
@@ -174,12 +174,6 @@ function renderAiReview(aiReview) {
                 ${score ? `<span class="step-chip">${esc(score)} marks</span>` : ''}
             </div>
             ${aiReview.reason ? `<div>${esc(aiReview.reason)}</div>` : ''}
-            <div class="score-line">
-                ${aiReview.source ? `<span>Source: ${esc(aiReview.source)}</span>` : ''}
-                ${aiReview.answerSource ? `<span>Answer source: ${esc(aiReview.answerSource)}</span>` : ''}
-                ${aiReview.reviewedByEmail ? `<span>Reviewed by: ${esc(aiReview.reviewedByEmail)}</span>` : ''}
-                ${aiReview.updatedAt ? `<span>Updated: ${esc(formatReviewDate(aiReview.updatedAt))}</span>` : ''}
-            </div>
         </div>
     `;
 }
@@ -203,13 +197,6 @@ function answerStatusHtml(answer) {
     return answer.isCorrect
         ? '<span class="status-chip correct">Correct</span>'
         : '<span class="status-chip wrong">Incorrect</span>';
-}
-
-function formatReviewDate(value) {
-    if (typeof value === 'number') return new Date(value).toLocaleString();
-    if (typeof value?.toMillis === 'function') return new Date(value.toMillis()).toLocaleString();
-    if (value?.seconds) return new Date(value.seconds * 1000).toLocaleString();
-    return String(value);
 }
 
 async function renderRich(root) {
