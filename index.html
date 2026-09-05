@@ -31,7 +31,7 @@
                 <span class="step-chip">Step 1</span>
             </div>
             <div class="form-grid">
-                <label class="field">
+                <label class="field" id="classCodeField">
                     <span>Class Code</span>
                     <input id="classCodeInput" inputmode="numeric" autocomplete="off" placeholder="Enter class code" />
                 </label>
@@ -44,6 +44,7 @@
                     <input id="phoneInput" inputmode="tel" autocomplete="tel" placeholder="Enter registered phone number" />
                 </label>
             </div>
+            <div class="hint-box" id="urlClassroomHint" hidden></div>
             <div class="hint-box" id="phoneHintBox" hidden></div>
             <div class="actions">
                 <button class="btn primary" id="verifyBtn">Verify Student</button>

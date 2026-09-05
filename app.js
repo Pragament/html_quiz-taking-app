@@ -46,6 +46,8 @@ let currentIndex = 0;
 let toastTimer = null;
 let timerInterval = null;
 let tourOptOutSelected = false;
+let urlClassCode = '';
+let urlClassroomResult = null;
 
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
@@ -77,11 +79,14 @@ const els = {
     resetBtn: $('resetBtn'),
     tourBtn: $('tourBtn'),
     viewSubmissionsBtn: $('viewSubmissionsBtn'),
+    classCodeField: $('classCodeField'),
+    classCodeInput: $('classCodeInput'),
     loginView: $('loginView'),
     setupView: $('setupView'),
     quizView: $('quizView'),
     resultView: $('resultView'),
     loginError: $('loginError'),
+    urlClassroomHint: $('urlClassroomHint'),
     phoneHintBox: $('phoneHintBox'),
     welcomeTitle: $('welcomeTitle'),
     classroomLabel: $('classroomLabel'),
@@ -106,6 +111,7 @@ if (window.mermaid) {
 }
 
 bindEvents();
+initializeClassroomFromUrl();
 maybePromptGuidedTour();
 
 function bindEvents() {
@@ -169,7 +175,7 @@ function saveTourPreference() {
 
 async function verifyStudent() {
     showLoginError('');
-    const classCode = $('classCodeInput').value.trim();
+    const classCode = els.classCodeInput.value.trim();
     const admissionNo = $('admissionNoInput').value.trim();
     const phone = normalizePhone($('phoneInput').value);
     if (!classCode || !admissionNo || !phone) {
@@ -179,7 +185,9 @@ async function verifyStudent() {
 
     try {
         setStatus('Checking classroom...');
-        const classroomResult = await findClassroom(classCode);
+        const classroomResult = urlClassroomResult?.classroom?.classCode === classCode || urlClassroomResult?.classroomId === classCode
+            ? urlClassroomResult
+            : await findClassroom(classCode);
         if (!classroomResult) {
             showLoginError(`No classroom found for class code ${classCode}.`);
             return;
@@ -235,6 +243,36 @@ async function verifyStudent() {
     }
 }
 
+async function initializeClassroomFromUrl() {
+    urlClassCode = new URLSearchParams(window.location.search).get('classCode')?.trim()
+        || new URLSearchParams(window.location.search).get('code')?.trim()
+        || '';
+    if (!urlClassCode) return;
+
+    els.classCodeInput.value = urlClassCode;
+    els.classCodeInput.readOnly = true;
+    setStatus('Loading classroom...');
+    try {
+        const classroomResult = await findClassroom(urlClassCode);
+        if (!classroomResult) {
+            els.classCodeInput.readOnly = false;
+            showLoginError(`No classroom found for class code ${urlClassCode}.`);
+            setStatus('Enter your classroom details to begin');
+            return;
+        }
+
+        urlClassroomResult = classroomResult;
+        els.classCodeField.hidden = true;
+        els.urlClassroomHint.hidden = false;
+        els.urlClassroomHint.textContent = `${classroomTitle(classroomResult)}. Enter admission number and phone to continue.`;
+        setStatus('Classroom found. Enter admission number and phone.');
+    } catch (error) {
+        els.classCodeInput.readOnly = false;
+        showLoginError(error.message || 'Unable to load classroom from the URL.');
+        setStatus('Classroom lookup failed');
+    }
+}
+
 async function findClassroom(classCode) {
     const directSnap = await getDoc(doc(db, COLLECTIONS.classrooms, classCode));
     if (directSnap.exists()) return { classroomId: directSnap.id, classroom: directSnap.data() };
@@ -252,6 +290,10 @@ async function findStudent(sectionId, admissionNo) {
     if (snap.empty) return null;
     const first = snap.docs[0];
     return { studentDocId: first.id, student: first.data() };
+}
+
+function classroomTitle({ classroomId, classroom }) {
+    return classroom.className || classroom.classCode || classroomId;
 }
 
 function configureSetupForClassroom() {
@@ -593,7 +635,14 @@ function resetApp() {
     currentIndex = 0;
     stopTimer();
     els.resetBtn.hidden = true;
+    els.classCodeField.hidden = !!urlClassroomResult;
     els.phoneHintBox.hidden = true;
+    els.urlClassroomHint.hidden = !urlClassroomResult;
+    if (urlClassroomResult) {
+        els.classCodeInput.value = urlClassCode;
+        els.classCodeInput.readOnly = true;
+        els.urlClassroomHint.textContent = `${classroomTitle(urlClassroomResult)}. Enter admission number and phone to continue.`;
+    }
     els.quizFilterControls.hidden = false;
     $('loadQuestionsBtn').hidden = false;
     els.startQuizBtn.disabled = true;

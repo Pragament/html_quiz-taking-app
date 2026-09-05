@@ -45,6 +45,7 @@ The app loads Firebase, KaTeX, and Mermaid from CDNs, so internet is required fo
 
 ## Notes
 
+- Classroom links can include `?classCode=<class-code>` or `?code=<class-code>`; the app shows the classroom name and asks only for admission number and phone.
 - MCQ, True/False, and FIB questions are auto-graded.
 - Short-answer responses are stored with `isCorrect: null` for teacher review.
 - Classrooms with `questionBankListId` use the teacher-selected list order and do not shuffle questions.
