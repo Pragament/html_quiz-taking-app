@@ -51,6 +51,7 @@ let urlClassroomResult = null;
 let shouldShowRecentSubmission = false;
 
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
+const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
 const TOUR_STEPS = [
     {
@@ -272,6 +273,7 @@ async function initializeClassroomFromUrl() {
         els.classCodeField.hidden = true;
         els.urlClassroomHint.hidden = false;
         els.urlClassroomHint.textContent = `${classroomTitle(classroomResult)}. Enter admission number and phone to continue.`;
+        prefillRecentLoginForUrlClass();
         setStatus('Classroom found. Enter admission number and phone.');
     } catch (error) {
         els.classCodeInput.readOnly = false;
@@ -284,6 +286,14 @@ function submissionsUrl(options = {}) {
     const params = new URLSearchParams();
     if (options.showRecent) params.set('show-recent', '1');
     return `submissions.html${params.toString() ? `?${params}` : ''}`;
+}
+
+function prefillRecentLoginForUrlClass() {
+    if (!shouldShowRecentSubmission || !urlClassCode) return;
+    const recentLogin = readRecentLogin(urlClassCode);
+    if (!recentLogin) return;
+    if (recentLogin.admissionNo) $('admissionNoInput').value = recentLogin.admissionNo;
+    if (recentLogin.phone) $('phoneInput').value = recentLogin.phone;
 }
 
 async function findClassroom(classCode) {
@@ -676,6 +686,28 @@ function saveVerifiedSession() {
         studentKey: session.studentKey,
         classroomLabel: els.classroomLabel.textContent
     }));
+    saveRecentLogin();
+}
+
+function saveRecentLogin() {
+    const classCode = session.classroom.classCode || session.classroomId;
+    if (!classCode) return;
+    localStorage.setItem(recentLoginStorageKey(classCode), JSON.stringify({
+        admissionNo: session.admissionNo,
+        phone: normalizePhone($('phoneInput').value)
+    }));
+}
+
+function readRecentLogin(classCode) {
+    try {
+        return JSON.parse(localStorage.getItem(recentLoginStorageKey(classCode)) || 'null');
+    } catch {
+        return null;
+    }
+}
+
+function recentLoginStorageKey(classCode) {
+    return `${RECENT_LOGIN_STORAGE_PREFIX}${classCode}`;
 }
 
 function startTimer() {
