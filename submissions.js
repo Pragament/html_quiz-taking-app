@@ -96,6 +96,7 @@ function renderHistory(submissions) {
                     <span class="score-line">
                         <span>${sub.questionCount} questions</span>
                         <span>${sub.answeredCount} answered</span>
+                        <span>${sub.correctCount}/${sub.gradableCount} auto-graded</span>
                         <span>${esc(sub.subject || 'Any subject')}</span>
                         <span>${esc((sub.chapters || []).join(', ') || 'Any chapter')}</span>
                     </span>
@@ -103,6 +104,7 @@ function renderHistory(submissions) {
                 <span class="step-chip">${sub.correctCount}/${sub.gradableCount}</span>
             </summary>
             <div class="submission-review">
+                ${renderSubmissionDetails(sub)}
                 ${renderReviewTabs(sub.answers || [])}
                 ${renderSubmissionAnswers(sub.answers || [])}
             </div>
@@ -128,6 +130,18 @@ function renderReviewTabs(answers) {
     `;
 }
 
+function renderSubmissionDetails(submission) {
+    return `
+        <div class="submission-details">
+            <span><strong>Student:</strong> ${esc(submission.studentName || 'Student')}</span>
+            <span><strong>Admission:</strong> ${esc(submission.admissionNo || 'Not recorded')}</span>
+            <span><strong>Classroom:</strong> ${esc(submission.classroomId || 'Not recorded')}</span>
+            <span><strong>Class:</strong> ${esc(submission.className || 'Any class')}</span>
+            <span><strong>Difficulty:</strong> ${esc(submission.difficulty || 'Any difficulty')}</span>
+        </div>
+    `;
+}
+
 function renderSubmissionAnswers(answers) {
     if (!answers.length) return '<div class="quiz-summary">No question details were stored for this submission.</div>';
     return answers.map((answer, index) => `
@@ -139,8 +153,35 @@ function renderSubmissionAnswers(answers) {
             <div class="rich-content">${sanitizeRich(answer.promptHtml)}</div>
             <div><strong>Your answer:</strong> ${esc(answer.displayAnswer || 'Not answered')}</div>
             <div><strong>Correct answer:</strong> ${esc(answer.correctAnswer || 'Teacher review')}</div>
+            ${renderAiReview(answer.aiReview)}
         </article>
     `).join('');
+}
+
+function renderAiReview(aiReview) {
+    if (!aiReview) return '';
+    const marks = aiReview.marks ?? null;
+    const maxMarks = aiReview.maxMarks ?? null;
+    const score = marks !== null && maxMarks !== null
+        ? `${marks}/${maxMarks}`
+        : marks !== null
+            ? String(marks)
+            : '';
+    return `
+        <div class="ai-review-box">
+            <div class="review-head">
+                <strong>Review</strong>
+                ${score ? `<span class="step-chip">${esc(score)} marks</span>` : ''}
+            </div>
+            ${aiReview.reason ? `<div>${esc(aiReview.reason)}</div>` : ''}
+            <div class="score-line">
+                ${aiReview.source ? `<span>Source: ${esc(aiReview.source)}</span>` : ''}
+                ${aiReview.answerSource ? `<span>Answer source: ${esc(aiReview.answerSource)}</span>` : ''}
+                ${aiReview.reviewedByEmail ? `<span>Reviewed by: ${esc(aiReview.reviewedByEmail)}</span>` : ''}
+                ${aiReview.updatedAt ? `<span>Updated: ${esc(formatReviewDate(aiReview.updatedAt))}</span>` : ''}
+            </div>
+        </div>
+    `;
 }
 
 function setReviewFilter(review, filter) {
@@ -162,6 +203,13 @@ function answerStatusHtml(answer) {
     return answer.isCorrect
         ? '<span class="status-chip correct">Correct</span>'
         : '<span class="status-chip wrong">Incorrect</span>';
+}
+
+function formatReviewDate(value) {
+    if (typeof value === 'number') return new Date(value).toLocaleString();
+    if (typeof value?.toMillis === 'function') return new Date(value.toMillis()).toLocaleString();
+    if (value?.seconds) return new Date(value.seconds * 1000).toLocaleString();
+    return String(value);
 }
 
 async function renderRich(root) {

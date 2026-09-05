@@ -25,7 +25,7 @@ Independent responsive quiz-taking app for students. It verifies a student throu
 9. If the classroom does not have `questionBankListId`, the student loads published questions from `qb_questions_v1` using the setup filters.
 10. After Start, the selected question list is local in memory so navigation continues offline until Submit.
 11. Submit writes to `qb_quiz_submissions_v1`.
-12. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first, with expandable question-by-question review filtered by All, Correct, Incorrect, or Manual.
+12. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first, with expandable question-by-question review filtered by All, Correct, Incorrect, or Manual. If `answers[].aiReview` exists, students also see marks, max marks, reason, source, reviewer, and review timestamp.
 
 ## Run Locally
 

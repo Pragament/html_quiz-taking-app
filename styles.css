@@ -382,6 +382,27 @@ a.btn {
     margin-top: 10px;
 }
 
+.submission-details,
+.ai-review-box {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 11px 12px;
+}
+
+.submission-details {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.ai-review-box {
+    display: grid;
+    gap: 8px;
+}
+
 .review-tabs {
     display: flex;
     gap: 6px;
