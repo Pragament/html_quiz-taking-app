@@ -68,8 +68,7 @@ const TOUR_STEPS = [
     },
     {
         title: 'Past Submissions',
-        intro: 'Open past attempts from the homepage and expand a submission to review each question.',
-        element: '#viewSubmissionsBtn'
+        intro: 'After verification, a Past Submissions button appears so the student can review previous attempts.'
     }
 ];
 
@@ -236,6 +235,7 @@ async function verifyStudent() {
             : 'Verified. Choose quiz filters and load questions.');
         showOnly('setup');
         els.resetBtn.hidden = false;
+        els.viewSubmissionsBtn.hidden = false;
         if (session.classroom.questionBankListId) await loadPublishedQuestions();
     } catch (error) {
         showLoginError(error.message || 'Unable to verify student.');
@@ -635,6 +635,7 @@ function resetApp() {
     currentIndex = 0;
     stopTimer();
     els.resetBtn.hidden = true;
+    els.viewSubmissionsBtn.hidden = true;
     els.classCodeField.hidden = !!urlClassroomResult;
     els.phoneHintBox.hidden = true;
     els.urlClassroomHint.hidden = !urlClassroomResult;

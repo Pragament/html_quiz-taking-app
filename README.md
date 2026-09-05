@@ -20,7 +20,7 @@ Independent responsive quiz-taking app for students. It verifies a student throu
 4. Login continues only when `classEnabled === true`.
 5. App reads `/classSections/{sectionId}/students/{admissionNo}` first, then falls back to querying by `admissionNo`.
 6. App shows the last 3 digits of the registered phone and verifies the full entered phone.
-7. The homepage Past Submissions button opens a standalone history page; after verification, the student session is stored locally so that page can load the verified student's attempts.
+7. After verification, the Past Submissions button opens a standalone history page and the student session is stored locally so that page can load the verified student's attempts.
 8. If the classroom has `questionBankListId`, the app hides manual filters, hides Load Questions, reads that `qb_lists_v1` document automatically, and loads only its published `questionIds` from `qb_questions_v1` in list order.
 9. If the classroom does not have `questionBankListId`, the student loads published questions from `qb_questions_v1` using the setup filters.
 10. After Start, the selected question list is local in memory so navigation continues offline until Submit.
