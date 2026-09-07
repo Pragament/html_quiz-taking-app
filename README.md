@@ -21,11 +21,12 @@ Independent responsive quiz-taking app for students. It verifies a student throu
 5. App reads `/classSections/{sectionId}/students/{admissionNo}` first, then falls back to querying by `admissionNo`.
 6. App shows the last 3 digits of the registered phone and verifies the full entered phone.
 7. After verification, the Past Submissions button opens a standalone history page and the student session is stored locally so that page can load the verified student's attempts.
-8. If the classroom has `questionBankListId`, the app hides manual filters, hides Load Questions, reads that `qb_lists_v1` document automatically, and loads only its published `questionIds` from `qb_questions_v1` in list order.
-9. If the classroom does not have `questionBankListId`, the student loads published questions from `qb_questions_v1` using the setup filters.
-10. After Start, the selected question list is local in memory so navigation continues offline until Submit.
-11. Submit writes to `qb_quiz_submissions_v1` using one deterministic submission document per classroom, section, and admission number.
-12. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first, with expandable question-by-question review filtered by All, Correct, Incorrect, or Manual. If `answers[].aiReview` exists, students also see marks, max marks, and the review reason.
+8. If the classroom has `questionBankListId`, the app hides manual filters, hides Load Questions, reads that `qb_lists_v1` document automatically, and loads only its published `questionIds` from `qb_questions_v1`.
+9. If the classroom also has `randomQuestionTypeCounts`, the app randomly picks up to that many questions per type from the selected list, then shows the picked questions in the list's original order.
+10. If the classroom does not have `questionBankListId`, the student loads published questions from `qb_questions_v1` using the setup filters.
+11. After Start, the selected question list is local in memory so navigation continues offline until Submit.
+12. Submit writes to `qb_quiz_submissions_v1` using one deterministic submission document per classroom, section, and admission number.
+13. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first, with expandable question-by-question review filtered by All, Correct, Incorrect, or Manual. If `answers[].aiReview` exists, students also see marks, max marks, and the review reason.
 
 ## Run Locally
 
@@ -49,7 +50,7 @@ The app loads Firebase, KaTeX, and Mermaid from CDNs, so internet is required fo
 - Classroom links can include `&show-recent=1`; after student verification, the app opens the past-submissions page with the newest submission expanded. For these links, the app also prepopulates the last verified admission number and phone for that class code from local storage.
 - MCQ, True/False, and FIB questions are auto-graded.
 - Short-answer responses are stored with `isCorrect: null` for teacher review.
-- Classrooms with `questionBankListId` use the teacher-selected list order and do not shuffle questions.
+- Classrooms with `questionBankListId` use the teacher-selected list. If `randomQuestionTypeCounts` is set, selection is random within each requested type; otherwise every listed published question is used.
 - Published question reads use `qb_questions_v1 where status == "published"` when no classroom list is selected.
 - Student submission history uses `studentKey = sectionId_admissionNo`.
 - A student can have only one submission per classroom; duplicate attempts are blocked before write.

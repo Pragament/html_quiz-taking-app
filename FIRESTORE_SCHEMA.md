@@ -30,7 +30,13 @@ Document shape:
   creatorId: 'SPwA523UClVxTpX5m8XPMu5Imiy1',
   sectionId: 'QQAP9O4UyvlaYhqz7jdE',
   sectionName: 'DSS grade 8',
-  questionBankListId: 'qb_lists_v1 document id'
+  questionBankListId: 'qb_lists_v1 document id',
+  randomQuestionTypeCounts: {
+    mcq: 10,
+    fib: 5,
+    short_answer: 3,
+    true_false: 2
+  }
 }
 ```
 
@@ -41,6 +47,7 @@ Important fields:
 - `sectionId` - points to the student subcollection.
 - `className` and `sectionName` - shown after verification.
 - `questionBankListId` - optional reference to a private question list selected by the teacher. When present, the quiz app loads only that list's published questions in `questionIds` order.
+- `randomQuestionTypeCounts` - optional per-type limits for randomly picking questions from the selected question list. Missing or empty means use all listed published questions.
 
 ### `classSections/{sectionId}/students`
 

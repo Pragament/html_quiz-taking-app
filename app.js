@@ -335,8 +335,9 @@ async function loadPublishedQuestions() {
         const listId = session.classroom.questionBankListId;
         if (listId) {
             setStatus('Loading classroom question list...');
-            loadedQuestions = await loadQuestionsFromList(listId);
-            els.questionLoadSummary.textContent = `${loadedQuestions.length} classroom question${loadedQuestions.length === 1 ? '' : 's'} loaded in teacher-selected order.`;
+            const listQuestions = await loadQuestionsFromList(listId);
+            loadedQuestions = applyRandomTypeCounts(listQuestions, session.classroom.randomQuestionTypeCounts);
+            els.questionLoadSummary.textContent = classroomListSummary(listQuestions, loadedQuestions, session.classroom.randomQuestionTypeCounts);
         } else {
             setStatus('Loading published questions...');
             const snap = await getDocs(query(collection(db, COLLECTIONS.questions), where('status', '==', 'published')));
@@ -353,6 +354,42 @@ async function loadPublishedQuestions() {
         els.questionLoadSummary.textContent = error.message || 'Unable to load questions.';
         setStatus('Question load failed');
     }
+}
+
+function applyRandomTypeCounts(questions, counts) {
+    const normalizedCounts = normalizedQuestionTypeCounts(counts);
+    if (!Object.keys(normalizedCounts).length) return questions;
+
+    const selectedById = new Map();
+    Object.entries(normalizedCounts).forEach(([type, count]) => {
+        const candidates = questions.filter(question => question.type === type);
+        shuffle(candidates).slice(0, count).forEach(question => selectedById.set(question.id, question));
+    });
+    return questions.filter(question => selectedById.has(question.id));
+}
+
+function normalizedQuestionTypeCounts(counts) {
+    if (!counts || typeof counts !== 'object' || Array.isArray(counts)) return {};
+    return Object.fromEntries(
+        Object.entries(counts)
+            .map(([type, count]) => [type, Math.floor(Number(count))])
+            .filter(([type, count]) => type && Number.isFinite(count) && count > 0)
+    );
+}
+
+function classroomListSummary(allQuestions, selectedQuestions, counts) {
+    const normalizedCounts = normalizedQuestionTypeCounts(counts);
+    if (!Object.keys(normalizedCounts).length) {
+        return `${selectedQuestions.length} classroom question${selectedQuestions.length === 1 ? '' : 's'} loaded in teacher-selected order.`;
+    }
+
+    const pickedLabels = Object.entries(normalizedCounts)
+        .map(([type, requested]) => {
+            const picked = selectedQuestions.filter(question => question.type === type).length;
+            const available = allQuestions.filter(question => question.type === type).length;
+            return `${picked}/${Math.min(requested, available)} ${TYPE_LABELS[type] || type}`;
+        });
+    return `${selectedQuestions.length} classroom question${selectedQuestions.length === 1 ? '' : 's'} randomly selected by type: ${pickedLabels.join(', ')}.`;
 }
 
 async function loadQuestionsFromList(listId) {
