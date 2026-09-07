@@ -36,7 +36,12 @@ Document shape:
     fib: 5,
     short_answer: 3,
     true_false: 2
-  }
+  },
+  studentDifficultyLevels: {
+    '102': 'Easy',
+    '103': 'Hard'
+  },
+  studentDifficultyUpdatedAt: Timestamp
 }
 ```
 
@@ -48,6 +53,8 @@ Important fields:
 - `className` and `sectionName` - shown after verification.
 - `questionBankListId` - optional reference to a private question list selected by the teacher. When present, the quiz app loads only that list's published questions in `questionIds` order.
 - `randomQuestionTypeCounts` - optional per-type limits for randomly picking questions from the selected question list. Missing or empty means use all listed published questions.
+- `studentDifficultyLevels` - optional admission-number keyed difficulty overrides. Missing student entries use the quiz session default question selection.
+- `studentDifficultyUpdatedAt` - records when the teacher last changed student difficulty overrides.
 
 ### `classSections/{sectionId}/students`
 

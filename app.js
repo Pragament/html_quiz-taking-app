@@ -336,8 +336,10 @@ async function loadPublishedQuestions() {
         if (listId) {
             setStatus('Loading classroom question list...');
             const listQuestions = await loadQuestionsFromList(listId);
-            loadedQuestions = applyRandomTypeCounts(listQuestions, session.classroom.randomQuestionTypeCounts);
-            els.questionLoadSummary.textContent = classroomListSummary(listQuestions, loadedQuestions, session.classroom.randomQuestionTypeCounts);
+            const difficulty = studentDifficultyLevel();
+            const difficultyQuestions = applyStudentDifficulty(listQuestions, difficulty);
+            loadedQuestions = applyRandomTypeCounts(difficultyQuestions, session.classroom.randomQuestionTypeCounts);
+            els.questionLoadSummary.textContent = classroomListSummary(listQuestions, difficultyQuestions, loadedQuestions, session.classroom.randomQuestionTypeCounts, difficulty);
         } else {
             setStatus('Loading published questions...');
             const snap = await getDocs(query(collection(db, COLLECTIONS.questions), where('status', '==', 'published')));
@@ -368,6 +370,18 @@ function applyRandomTypeCounts(questions, counts) {
     return questions.filter(question => selectedById.has(question.id));
 }
 
+function applyStudentDifficulty(questions, difficulty) {
+    if (!difficulty) return questions;
+    return questions.filter(question => question.difficulty === difficulty);
+}
+
+function studentDifficultyLevel() {
+    const levels = session?.classroom?.studentDifficultyLevels;
+    if (!levels || typeof levels !== 'object' || Array.isArray(levels)) return '';
+    const admissionNo = String(session.admissionNo || '');
+    return String(levels[admissionNo] || '').trim();
+}
+
 function normalizedQuestionTypeCounts(counts) {
     if (!counts || typeof counts !== 'object' || Array.isArray(counts)) return {};
     return Object.fromEntries(
@@ -377,19 +391,22 @@ function normalizedQuestionTypeCounts(counts) {
     );
 }
 
-function classroomListSummary(allQuestions, selectedQuestions, counts) {
+function classroomListSummary(allQuestions, difficultyQuestions, selectedQuestions, counts, difficulty) {
     const normalizedCounts = normalizedQuestionTypeCounts(counts);
+    const difficultyPrefix = difficulty
+        ? `${difficultyQuestions.length} of ${allQuestions.length} listed question${allQuestions.length === 1 ? '' : 's'} match ${difficulty} difficulty. `
+        : '';
     if (!Object.keys(normalizedCounts).length) {
-        return `${selectedQuestions.length} classroom question${selectedQuestions.length === 1 ? '' : 's'} loaded in teacher-selected order.`;
+        return `${difficultyPrefix}${selectedQuestions.length} classroom question${selectedQuestions.length === 1 ? '' : 's'} loaded in teacher-selected order.`;
     }
 
     const pickedLabels = Object.entries(normalizedCounts)
         .map(([type, requested]) => {
             const picked = selectedQuestions.filter(question => question.type === type).length;
-            const available = allQuestions.filter(question => question.type === type).length;
+            const available = difficultyQuestions.filter(question => question.type === type).length;
             return `${picked}/${Math.min(requested, available)} ${TYPE_LABELS[type] || type}`;
         });
-    return `${selectedQuestions.length} classroom question${selectedQuestions.length === 1 ? '' : 's'} randomly selected by type: ${pickedLabels.join(', ')}.`;
+    return `${difficultyPrefix}${selectedQuestions.length} classroom question${selectedQuestions.length === 1 ? '' : 's'} randomly selected by type: ${pickedLabels.join(', ')}.`;
 }
 
 async function loadQuestionsFromList(listId) {
