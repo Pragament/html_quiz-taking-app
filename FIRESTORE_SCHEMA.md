@@ -1,6 +1,6 @@
 # Firestore Schema
 
-The quiz app reads existing classroom/student collections and writes quiz submissions to a prefixed question-bank collection.
+The quiz app reads existing quiz session/student collections and writes quiz submissions to a prefixed question-bank collection.
 
 ## Existing Collections Read By This App
 
@@ -47,11 +47,11 @@ Document shape:
 
 Important fields:
 
-- `classCode` - student-entered code.
+- `classCode` - student-entered quiz session code.
 - `classEnabled` - must be exactly `true` for login.
 - `sectionId` - points to the student subcollection.
 - `className` and `sectionName` - shown after verification.
-- `questionBankListId` - optional reference to a private question list selected by the teacher. When present, the quiz app loads only that list's published questions in `questionIds` order.
+- `questionBankListId` - optional reference to a private question list selected by the teacher. When present, the quiz app loads only that quiz session list's published questions in `questionIds` order.
 - `randomQuestionTypeCounts` - optional per-type limits for randomly picking questions from the selected question list. Missing or empty means use all listed published questions.
 - `studentDifficultyLevels` - optional admission-number keyed difficulty overrides. Missing student entries use the quiz session default question selection.
 - `studentDifficultyUpdatedAt` - records when the teacher last changed student difficulty overrides.
@@ -131,9 +131,9 @@ Document shape:
 
 Important fields:
 
-- `ownerUid` - must match the signed-in teacher UID for the list to appear in the classroom editor.
-- `name` - shown in the classroom question-list dropdown.
-- `questionIds` - stores question document IDs, not embedded question snapshots. The student quiz app preserves this order when a classroom references the list.
+- `ownerUid` - must match the signed-in teacher UID for the list to appear in the quiz session editor.
+- `name` - shown in the quiz session question-list dropdown.
+- `questionIds` - stores question document IDs, not embedded question snapshots. The student quiz app preserves this order when a quiz session references the list.
 
 ## Collection Written By This App
 
@@ -151,7 +151,7 @@ New submissions use a deterministic ID:
 encodeURIComponent(classroomId)__encodeURIComponent(sectionId)__encodeURIComponent(admissionNo)
 ```
 
-That gives each admission number at most one submission within a classroom.
+That gives each admission number at most one submission within a quiz session.
 
 Document shape:
 
@@ -196,7 +196,7 @@ Document shape:
 Field notes:
 
 - `studentKey` is `${sectionId}_${admissionNo}` and is used to load the student's past submissions.
-- `submissionId` is deterministic for new writes so duplicate attempts from the same admission number in the same classroom are blocked.
+- `submissionId` is deterministic for new writes so duplicate attempts from the same admission number in the same quiz session are blocked.
 - `answers` stores question and answer snapshots so review still works if the question bank changes later.
 - `isCorrect` is `true` or `false` for MCQ, True/False, and FIB. It is `null` for short answers.
 - `submittedAt` is a server timestamp.
@@ -204,8 +204,8 @@ Field notes:
 
 ## Query Patterns
 
-- Classroom direct read: `/classrooms/{classCode}`
-- Classroom fallback query: `classrooms where classCode == enteredCode`
+- Quiz session direct read: `/classrooms/{classCode}`
+- Quiz session fallback query: `classrooms where classCode == enteredCode`
 - Student direct read: `/classSections/{sectionId}/students/{admissionNo}`
 - Student fallback query: `students where admissionNo == enteredAdmissionNo`
 - Question list direct read: `/qb_lists_v1/{questionBankListId}`

@@ -15,7 +15,7 @@
     <header class="topbar">
         <div>
             <h1>Quiz Activity</h1>
-            <p id="statusText">Enter your classroom details to begin</p>
+            <p id="statusText">Enter your quiz session details to begin</p>
         </div>
         <div class="topbar-actions">
             <button class="btn" id="tourBtn">Tour</button>
@@ -32,8 +32,8 @@
             </div>
             <div class="form-grid">
                 <label class="field" id="classCodeField">
-                    <span>Class Code</span>
-                    <input id="classCodeInput" inputmode="numeric" autocomplete="off" placeholder="Enter class code" />
+                    <span>Quiz Session Code</span>
+                    <input id="classCodeInput" inputmode="numeric" autocomplete="off" placeholder="Enter quiz session code" />
                 </label>
                 <label class="field">
                     <span>Admission No</span>
@@ -101,9 +101,7 @@
                     <h2>Questions</h2>
                     <span id="timerLabel" class="step-chip">Live</span>
                 </div>
-                <div id="questionNav" class="question-nav"></div>
                 <div class="quiz-summary" id="progressSummary"></div>
-                <button class="btn primary wide-btn" id="submitQuizBtn">Submit Quiz</button>
             </aside>
             <section class="panel quiz-panel">
                 <div class="question-head">
@@ -116,7 +114,6 @@
                 <div id="questionPrompt" class="rich-content"></div>
                 <div id="answerArea" class="answer-area"></div>
                 <div class="actions spread">
-                    <button class="btn" id="prevQuestionBtn">Previous</button>
                     <button class="btn primary" id="nextQuestionBtn">Next</button>
                 </div>
             </section>

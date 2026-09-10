@@ -46,6 +46,7 @@ let currentIndex = 0;
 let toastTimer = null;
 let timerInterval = null;
 let tourOptOutSelected = false;
+let hasSubmittedCurrentSession = false;
 let urlClassCode = '';
 let urlClassroomResult = null;
 let shouldShowRecentSubmission = false;
@@ -60,12 +61,12 @@ const TOUR_STEPS = [
     },
     {
         title: 'Student Login',
-        intro: 'Enter the class code, admission number, and registered phone to verify the student.',
+        intro: 'Enter the quiz session code, admission number, and registered phone to verify the student.',
         element: '#loginView'
     },
     {
         title: 'Verify Student',
-        intro: 'After verification, the quiz setup appears. Classroom question lists load automatically when the teacher has selected one.',
+        intro: 'After verification, the quiz setup appears. Quiz session question lists load automatically when the teacher has selected one.',
         element: '#verifyBtn'
     },
     {
@@ -94,7 +95,6 @@ const els = {
     quizFilterControls: $('quizFilterControls'),
     questionLoadSummary: $('questionLoadSummary'),
     startQuizBtn: $('startQuizBtn'),
-    questionNav: $('questionNav'),
     progressSummary: $('progressSummary'),
     questionMeta: $('questionMeta'),
     questionTitle: $('questionTitle'),
@@ -119,9 +119,7 @@ function bindEvents() {
     $('verifyBtn').addEventListener('click', verifyStudent);
     $('loadQuestionsBtn').addEventListener('click', loadPublishedQuestions);
     $('startQuizBtn').addEventListener('click', startQuiz);
-    $('prevQuestionBtn').addEventListener('click', () => moveQuestion(-1));
-    $('nextQuestionBtn').addEventListener('click', () => moveQuestion(1));
-    $('submitQuizBtn').addEventListener('click', submitQuiz);
+    $('nextQuestionBtn').addEventListener('click', advanceQuestion);
     els.resetBtn.addEventListener('click', resetApp);
     els.tourBtn.addEventListener('click', () => startGuidedTour());
     els.viewSubmissionsBtn.addEventListener('click', () => {
@@ -180,26 +178,26 @@ async function verifyStudent() {
     const admissionNo = $('admissionNoInput').value.trim();
     const phone = normalizePhone($('phoneInput').value);
     if (!classCode || !admissionNo || !phone) {
-        showLoginError('Class code, admission number, and full phone number are required.');
+        showLoginError('Quiz session code, admission number, and full phone number are required.');
         return;
     }
 
     try {
-        setStatus('Checking classroom...');
+        setStatus('Checking quiz session...');
         const classroomResult = urlClassroomResult?.classroom?.classCode === classCode || urlClassroomResult?.classroomId === classCode
             ? urlClassroomResult
             : await findClassroom(classCode);
         if (!classroomResult) {
-            showLoginError(`No classroom found for class code ${classCode}.`);
+            showLoginError(`No quiz session found for code ${classCode}.`);
             return;
         }
         const { classroomId, classroom } = classroomResult;
         if (classroom.classEnabled !== true) {
-            showLoginError('This classroom is not enabled for student quiz login.');
+            showLoginError('This quiz session is not enabled for student quiz login.');
             return;
         }
         if (!classroom.sectionId) {
-            showLoginError('Classroom is missing sectionId, so student records cannot be verified.');
+            showLoginError('Quiz session is missing sectionId, so student records cannot be verified.');
             return;
         }
 
@@ -232,9 +230,16 @@ async function verifyStudent() {
         els.classroomLabel.textContent = `${classroom.className || classroom.classCode || classroomId} · ${classroom.sectionName || classroom.sectionId}`;
         saveVerifiedSession();
         configureSetupForClassroom();
-        setStatus(session.classroom.questionBankListId
-            ? 'Verified. Loading classroom questions...'
-            : 'Verified. Choose quiz filters and load questions.');
+        hasSubmittedCurrentSession = await hasExistingClassroomSubmission();
+        if (hasSubmittedCurrentSession) {
+            $('loadQuestionsBtn').disabled = true;
+            els.startQuizBtn.disabled = true;
+            els.questionLoadSummary.textContent = 'You have already submitted this quiz session.';
+        }
+        const verifiedStatus = session.classroom.questionBankListId
+            ? 'Verified. Loading quiz session questions...'
+            : 'Verified. Choose quiz filters and load questions.';
+        setStatus(hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : verifiedStatus);
         showOnly('setup');
         els.resetBtn.hidden = false;
         els.viewSubmissionsBtn.hidden = false;
@@ -242,7 +247,7 @@ async function verifyStudent() {
             window.location.href = submissionsUrl({ showRecent: true });
             return;
         }
-        if (session.classroom.questionBankListId) await loadPublishedQuestions();
+        if (session.classroom.questionBankListId && !hasSubmittedCurrentSession) await loadPublishedQuestions();
     } catch (error) {
         showLoginError(error.message || 'Unable to verify student.');
         setStatus('Verification failed');
@@ -259,13 +264,13 @@ async function initializeClassroomFromUrl() {
 
     els.classCodeInput.value = urlClassCode;
     els.classCodeInput.readOnly = true;
-    setStatus('Loading classroom...');
+    setStatus('Loading quiz session...');
     try {
         const classroomResult = await findClassroom(urlClassCode);
         if (!classroomResult) {
             els.classCodeInput.readOnly = false;
-            showLoginError(`No classroom found for class code ${urlClassCode}.`);
-            setStatus('Enter your classroom details to begin');
+            showLoginError(`No quiz session found for code ${urlClassCode}.`);
+            setStatus('Enter your quiz session details to begin');
             return;
         }
 
@@ -274,11 +279,11 @@ async function initializeClassroomFromUrl() {
         els.urlClassroomHint.hidden = false;
         els.urlClassroomHint.textContent = `${classroomTitle(classroomResult)}. Enter admission number and phone to continue.`;
         prefillRecentLoginForUrlClass();
-        setStatus('Classroom found. Enter admission number and phone.');
+        setStatus('Quiz session found. Enter admission number and phone.');
     } catch (error) {
         els.classCodeInput.readOnly = false;
-        showLoginError(error.message || 'Unable to load classroom from the URL.');
-        setStatus('Classroom lookup failed');
+        showLoginError(error.message || 'Unable to load quiz session from the URL.');
+        setStatus('Quiz session lookup failed');
     }
 }
 
@@ -323,18 +328,25 @@ function configureSetupForClassroom() {
     const hasClassroomList = !!session?.classroom?.questionBankListId;
     els.quizFilterControls.hidden = hasClassroomList;
     $('loadQuestionsBtn').hidden = hasClassroomList;
+    $('loadQuestionsBtn').disabled = false;
     els.startQuizBtn.disabled = true;
     els.questionLoadSummary.textContent = hasClassroomList
-        ? 'Loading the teacher-selected classroom question list...'
+        ? 'Loading the teacher-selected quiz session question list...'
         : 'Load questions to see availability.';
 }
 
 async function loadPublishedQuestions() {
     if (!session) return toast('Verify student first');
+    if (hasSubmittedCurrentSession) {
+        els.startQuizBtn.disabled = true;
+        toast('A submission already exists for this admission number in this quiz session.');
+        setStatus('Already submitted for this quiz session.');
+        return;
+    }
     try {
         const listId = session.classroom.questionBankListId;
         if (listId) {
-            setStatus('Loading classroom question list...');
+            setStatus('Loading quiz session question list...');
             const listQuestions = await loadQuestionsFromList(listId);
             const difficulty = studentDifficultyLevel();
             const difficultyQuestions = applyStudentDifficulty(listQuestions, difficulty);
@@ -350,8 +362,8 @@ async function loadPublishedQuestions() {
             const requested = Number($('questionCountInput').value || 10);
             els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'} match these filters. ${Math.min(requested, loadedQuestions.length)} will be used.`;
         }
-        els.startQuizBtn.disabled = !loadedQuestions.length;
-        setStatus('Questions loaded. You can start the quiz.');
+        els.startQuizBtn.disabled = hasSubmittedCurrentSession || !loadedQuestions.length;
+        setStatus(hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : 'Questions loaded. You can start the quiz.');
     } catch (error) {
         els.questionLoadSummary.textContent = error.message || 'Unable to load questions.';
         setStatus('Question load failed');
@@ -397,7 +409,7 @@ function classroomListSummary(allQuestions, difficultyQuestions, selectedQuestio
         ? `${difficultyQuestions.length} of ${allQuestions.length} listed question${allQuestions.length === 1 ? '' : 's'} match ${difficulty} difficulty. `
         : '';
     if (!Object.keys(normalizedCounts).length) {
-        return `${difficultyPrefix}${selectedQuestions.length} classroom question${selectedQuestions.length === 1 ? '' : 's'} loaded in teacher-selected order.`;
+        return `${difficultyPrefix}${selectedQuestions.length} quiz session question${selectedQuestions.length === 1 ? '' : 's'} loaded in teacher-selected order.`;
     }
 
     const pickedLabels = Object.entries(normalizedCounts)
@@ -406,12 +418,12 @@ function classroomListSummary(allQuestions, difficultyQuestions, selectedQuestio
             const available = difficultyQuestions.filter(question => question.type === type).length;
             return `${picked}/${Math.min(requested, available)} ${TYPE_LABELS[type] || type}`;
         });
-    return `${difficultyPrefix}${selectedQuestions.length} classroom question${selectedQuestions.length === 1 ? '' : 's'} randomly selected by type: ${pickedLabels.join(', ')}.`;
+    return `${difficultyPrefix}${selectedQuestions.length} quiz session question${selectedQuestions.length === 1 ? '' : 's'} randomly selected by type: ${pickedLabels.join(', ')}.`;
 }
 
 async function loadQuestionsFromList(listId) {
     const listSnap = await getDoc(doc(db, COLLECTIONS.questionLists, listId));
-    if (!listSnap.exists()) throw new Error('The classroom question list could not be found.');
+    if (!listSnap.exists()) throw new Error('The quiz session question list could not be found.');
 
     const questionIds = Array.isArray(listSnap.data().questionIds)
         ? listSnap.data().questionIds.filter(id => typeof id === 'string' && id.trim())
@@ -446,6 +458,12 @@ function matchesQuizFilters(question, filters) {
 }
 
 function startQuiz() {
+    if (hasSubmittedCurrentSession) {
+        toast('A submission already exists for this admission number in this quiz session.');
+        setStatus('Already submitted for this quiz session.');
+        els.startQuizBtn.disabled = true;
+        return;
+    }
     if (!loadedQuestions.length) return toast('Load questions first');
     const hasClassroomList = !!session?.classroom?.questionBankListId;
     const count = hasClassroomList
@@ -500,22 +518,14 @@ function emptyAnswer(question) {
 function renderQuiz() {
     const question = quiz.questions[currentIndex];
     const answer = quiz.answers[currentIndex];
-    els.questionNav.innerHTML = quiz.questions.map((_, i) => {
-        const answered = isAnswered(quiz.questions[i], quiz.answers[i]);
-        return `<button class="${i === currentIndex ? 'active' : ''} ${answered ? 'answered' : ''}" data-nav="${i}">${i + 1}</button>`;
-    }).join('');
-    document.querySelectorAll('[data-nav]').forEach(btn => btn.addEventListener('click', () => {
-        saveCurrentAnswer();
-        currentIndex = Number(btn.dataset.nav);
-        renderQuiz();
-    }));
-    els.progressSummary.textContent = `${quiz.answers.filter((a, i) => isAnswered(quiz.questions[i], a)).length} of ${quiz.questions.length} answered`;
+    els.progressSummary.textContent = `Question ${currentIndex + 1} of ${quiz.questions.length} · ${quiz.answers.filter((a, i) => isAnswered(quiz.questions[i], a)).length} answered`;
     els.timerLabel.textContent = elapsedLabel(Date.now() - quiz.startedAt);
     els.questionMeta.textContent = `${question.className || 'Class'} · ${question.subject || 'Subject'} · ${question.chapter || 'Chapter'} · ${question.difficulty || 'Difficulty'}`;
     els.questionTitle.textContent = `Question ${currentIndex + 1}`;
     els.questionTypeLabel.textContent = TYPE_LABELS[question.type] || question.type;
     els.questionPrompt.innerHTML = sanitizeRich(question.promptHtml);
     els.answerArea.innerHTML = answerInputHtml(question, answer);
+    $('nextQuestionBtn').textContent = currentIndex === quiz.questions.length - 1 ? 'Submit Quiz' : 'Next';
     renderRich(els.questionPrompt);
     renderRich(els.answerArea);
 }
@@ -567,9 +577,13 @@ function saveCurrentAnswer() {
     }
 }
 
-function moveQuestion(delta) {
+function advanceQuestion() {
     saveCurrentAnswer();
-    currentIndex = Math.max(0, Math.min(quiz.questions.length - 1, currentIndex + delta));
+    if (currentIndex === quiz.questions.length - 1) {
+        submitQuiz();
+        return;
+    }
+    currentIndex += 1;
     renderQuiz();
 }
 
@@ -602,7 +616,7 @@ async function submitQuiz() {
     try {
         setStatus('Submitting quiz...');
         if (await hasExistingClassroomSubmission()) {
-            toast('A submission already exists for this admission number in this classroom.');
+            toast('A submission already exists for this admission number in this quiz session.');
             setStatus('Duplicate submission blocked');
             return;
         }
@@ -735,6 +749,7 @@ function resetApp() {
     loadedQuestions = [];
     quiz = null;
     currentIndex = 0;
+    hasSubmittedCurrentSession = false;
     stopTimer();
     els.resetBtn.hidden = true;
     els.viewSubmissionsBtn.hidden = true;
@@ -748,11 +763,12 @@ function resetApp() {
     }
     els.quizFilterControls.hidden = false;
     $('loadQuestionsBtn').hidden = false;
+    $('loadQuestionsBtn').disabled = false;
     els.startQuizBtn.disabled = true;
     els.questionLoadSummary.textContent = 'Load questions to see availability.';
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
     showLoginError('');
-    setStatus('Enter your classroom details to begin');
+    setStatus('Enter your quiz session details to begin');
     showOnly('login');
 }
 
