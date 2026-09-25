@@ -83,7 +83,7 @@ Document shape:
 Important fields:
 
 - `admissionNo` - student-entered admission number.
-- `phone` - registered phone. The app shows the last 3 digits as a hint and verifies the full entered number.
+- `phone` - registered phone. The app shows the first 3 digits as a hint, asks the student for only the first 6 digits, and verifies them against this stored value.
 - `name` - saved into quiz submissions as `studentName`.
 
 ### `qb_questions_v1`
