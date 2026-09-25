@@ -26,6 +26,7 @@ const COLLECTIONS = {
     classSections: 'classSections',
     questionLists: 'qb_lists_v1',
     questions: 'qb_questions_v1',
+    taxonomy: 'qb_taxonomy_v1',
     submissions: 'qb_quiz_submissions_v1'
 };
 
@@ -47,6 +48,8 @@ let toastTimer = null;
 let timerInterval = null;
 let tourOptOutSelected = false;
 let hasSubmittedCurrentSession = false;
+let taxonomyItems = [];
+let taxonomyById = new Map();
 let urlClassCode = '';
 let urlClassroomResult = null;
 let shouldShowRecentSubmission = false;
@@ -54,6 +57,7 @@ let shouldShowRecentSubmission = false;
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
+const APP_VERSION = '2026.09.25.1';
 const TOUR_STEPS = [
     {
         title: 'Take a Guided Tour?',
@@ -93,6 +97,8 @@ const els = {
     welcomeTitle: $('welcomeTitle'),
     classroomLabel: $('classroomLabel'),
     quizFilterControls: $('quizFilterControls'),
+    subjectFilterField: $('subjectFilterField'),
+    chapterFilterField: $('chapterFilterField'),
     questionLoadSummary: $('questionLoadSummary'),
     startQuizBtn: $('startQuizBtn'),
     progressSummary: $('progressSummary'),
@@ -130,17 +136,12 @@ function bindEvents() {
             tourOptOutSelected = event.target.checked;
         }
     });
-    ['classFilter', 'subjectFilter', 'chapterFilter', 'difficultyFilter', 'questionCountInput'].forEach(id => {
-        $(id).addEventListener('input', () => {
-            loadedQuestions = [];
-            els.startQuizBtn.disabled = true;
-            els.questionLoadSummary.textContent = 'Load questions to see availability.';
-        });
-        $(id).addEventListener('change', () => {
-            loadedQuestions = [];
-            els.startQuizBtn.disabled = true;
-            els.questionLoadSummary.textContent = 'Load questions to see availability.';
-        });
+    $('classFilter').addEventListener('change', handleClassFilterChange);
+    $('subjectFilter').addEventListener('change', handleSubjectFilterChange);
+    $('chapterFilter').addEventListener('change', resetLoadedQuestionSelection);
+    ['difficultyFilter', 'questionCountInput'].forEach(id => {
+        $(id).addEventListener('input', resetLoadedQuestionSelection);
+        $(id).addEventListener('change', resetLoadedQuestionSelection);
     });
 }
 
@@ -248,6 +249,7 @@ async function verifyStudent() {
             return;
         }
         if (session.classroom.questionBankListId && !hasSubmittedCurrentSession) await loadPublishedQuestions();
+        if (!session.classroom.questionBankListId && !hasSubmittedCurrentSession) await loadTaxonomyFilters();
     } catch (error) {
         showLoginError(error.message || 'Unable to verify student.');
         setStatus('Verification failed');
@@ -289,6 +291,7 @@ async function initializeClassroomFromUrl() {
 
 function submissionsUrl(options = {}) {
     const params = new URLSearchParams();
+    params.set('v', APP_VERSION);
     if (options.showRecent) params.set('show-recent', '1');
     return `submissions.html${params.toString() ? `?${params}` : ''}`;
 }
@@ -335,6 +338,69 @@ function configureSetupForClassroom() {
         : 'Load questions to see availability.';
 }
 
+async function loadTaxonomyFilters() {
+    try {
+        setStatus('Loading quiz filters...');
+        const snap = await getDocs(collection(db, COLLECTIONS.taxonomy));
+        taxonomyItems = snap.docs
+            .map(taxonomyDoc => normalizeTaxonomyItem(taxonomyDoc.id, taxonomyDoc.data()))
+            .filter(item => item.id && item.label && ['class', 'subject', 'chapter'].includes(item.type))
+            .sort((a, b) => a.label.localeCompare(b.label));
+        taxonomyById = new Map(taxonomyItems.map(item => [item.id, item]));
+        populateTaxonomySelect('classFilter', taxonomyItems.filter(item => item.type === 'class'), 'Select class');
+        populateTaxonomySelect('subjectFilter', [], 'Select subject');
+        populateTaxonomySelect('chapterFilter', [], 'Select chapter');
+        els.subjectFilterField.hidden = true;
+        els.chapterFilterField.hidden = true;
+        setStatus('Verified. Choose quiz filters and load questions.');
+    } catch (error) {
+        els.questionLoadSummary.textContent = error.message || 'Unable to load class, subject, and chapter filters.';
+        setStatus('Quiz filter load failed');
+    }
+}
+
+function normalizeTaxonomyItem(id, item) {
+    return {
+        id,
+        type: String(item.type || ''),
+        label: String(item.label || ''),
+        parentId: item.parentId || '',
+        classId: item.classId || '',
+        subjectId: item.subjectId || '',
+        chapterId: item.chapterId || ''
+    };
+}
+
+function populateTaxonomySelect(selectId, items, placeholder) {
+    const select = $(selectId);
+    select.innerHTML = [
+        `<option value="">${esc(placeholder)}</option>`,
+        ...items.map(item => `<option value="${esc(item.id)}">${esc(item.label)}</option>`)
+    ].join('');
+}
+
+function handleClassFilterChange() {
+    const classId = $('classFilter').value;
+    populateTaxonomySelect('subjectFilter', taxonomyItems.filter(item => item.type === 'subject' && (item.parentId === classId || item.classId === classId)), 'Select subject');
+    populateTaxonomySelect('chapterFilter', [], 'Select chapter');
+    els.subjectFilterField.hidden = !classId;
+    els.chapterFilterField.hidden = true;
+    resetLoadedQuestionSelection();
+}
+
+function handleSubjectFilterChange() {
+    const subjectId = $('subjectFilter').value;
+    populateTaxonomySelect('chapterFilter', taxonomyItems.filter(item => item.type === 'chapter' && (item.parentId === subjectId || item.subjectId === subjectId)), 'Select chapter');
+    els.chapterFilterField.hidden = !subjectId;
+    resetLoadedQuestionSelection();
+}
+
+function resetLoadedQuestionSelection() {
+    loadedQuestions = [];
+    els.startQuizBtn.disabled = true;
+    els.questionLoadSummary.textContent = 'Load questions to see availability.';
+}
+
 async function loadPublishedQuestions() {
     if (!session) return toast('Verify student first');
     if (hasSubmittedCurrentSession) {
@@ -354,6 +420,7 @@ async function loadPublishedQuestions() {
             els.questionLoadSummary.textContent = classroomListSummary(listQuestions, difficultyQuestions, loadedQuestions, session.classroom.randomQuestionTypeCounts, difficulty);
         } else {
             setStatus('Loading published questions...');
+            if (!taxonomyItems.length) await loadTaxonomyFilters();
             const snap = await getDocs(query(collection(db, COLLECTIONS.questions), where('status', '==', 'published')));
             const filters = getQuizFilters();
             loadedQuestions = snap.docs
@@ -441,20 +508,30 @@ async function loadQuestionsFromList(listId) {
 }
 
 function getQuizFilters() {
+    const classId = $('classFilter').value;
+    const subjectId = $('subjectFilter').value;
+    const chapterId = $('chapterFilter').value;
     return {
-        className: $('classFilter').value.trim(),
-        subject: $('subjectFilter').value.trim(),
-        chapter: $('chapterFilter').value.trim(),
+        classId,
+        subjectId,
+        chapterId,
+        className: taxonomyLabel(classId),
+        subject: taxonomyLabel(subjectId),
+        chapter: taxonomyLabel(chapterId),
         difficulty: $('difficultyFilter').value.trim()
     };
 }
 
 function matchesQuizFilters(question, filters) {
-    if (filters.className && !contains(question.className, filters.className)) return false;
-    if (filters.subject && !contains(question.subject, filters.subject)) return false;
-    if (filters.chapter && !contains(question.chapter, filters.chapter)) return false;
+    if (filters.classId && question.classId !== filters.classId) return false;
+    if (filters.subjectId && question.subjectId !== filters.subjectId) return false;
+    if (filters.chapterId && question.chapterId !== filters.chapterId) return false;
     if (filters.difficulty && question.difficulty !== filters.difficulty) return false;
     return true;
+}
+
+function taxonomyLabel(id) {
+    return id ? taxonomyById.get(id)?.label || '' : '';
 }
 
 function startQuiz() {
@@ -491,10 +568,14 @@ function snapshotQuestion(question) {
     return {
         id: question.id,
         type: question.type,
-        className: question.className || '',
-        subject: question.subject || '',
-        chapter: question.chapter || '',
-        topic: question.topic || '',
+        classId: question.classId || '',
+        subjectId: question.subjectId || '',
+        chapterId: question.chapterId || '',
+        topicId: question.topicId || '',
+        className: taxonomyLabel(question.classId) || question.className || '',
+        subject: taxonomyLabel(question.subjectId) || question.subject || '',
+        chapter: taxonomyLabel(question.chapterId) || question.chapter || '',
+        topic: taxonomyLabel(question.topicId) || question.topic || '',
         difficulty: question.difficulty || '',
         promptHtml: question.promptHtml || '',
         options: (question.options || []).map(opt => ({ html: opt.html || '', correct: !!opt.correct })),
@@ -601,6 +682,9 @@ async function submitQuiz() {
         admissionNo: session.admissionNo,
         studentName: session.studentName,
         studentKey: session.studentKey,
+        classId: quiz.filters.classId,
+        subjectId: quiz.filters.subjectId,
+        chapterId: quiz.filters.chapterId,
         className: quiz.filters.className,
         subject: quiz.filters.subject,
         chapters: unique(quiz.questions.map(q => q.chapter).filter(Boolean)),
@@ -762,6 +846,11 @@ function resetApp() {
         els.urlClassroomHint.textContent = `${classroomTitle(urlClassroomResult)}. Enter admission number and phone to continue.`;
     }
     els.quizFilterControls.hidden = false;
+    els.subjectFilterField.hidden = true;
+    els.chapterFilterField.hidden = true;
+    populateTaxonomySelect('classFilter', taxonomyItems.filter(item => item.type === 'class'), 'Select class');
+    populateTaxonomySelect('subjectFilter', [], 'Select subject');
+    populateTaxonomySelect('chapterFilter', [], 'Select chapter');
     $('loadQuestionsBtn').hidden = false;
     $('loadQuestionsBtn').disabled = false;
     els.startQuizBtn.disabled = true;

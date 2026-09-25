@@ -32,6 +32,22 @@ body {
     letter-spacing: 0;
 }
 
+.app-version-badge {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 1000;
+    border: 1px solid rgba(255, 255, 255, 0.26);
+    border-radius: 7px;
+    background: rgba(16, 34, 53, 0.92);
+    color: #fff;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1.2;
+    box-shadow: 0 8px 22px rgba(16, 34, 53, 0.18);
+}
+
 button,
 input,
 select,
@@ -50,7 +66,7 @@ a.btn {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 12px 18px;
+    padding: 12px 18px 12px 112px;
     background: #102235;
     color: #fff;
 }
