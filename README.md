@@ -14,12 +14,12 @@ Independent responsive quiz-taking app for students. It verifies a student throu
 
 ## Flow
 
-1. Student enters quiz session code, `admissionNo`, and full `phone`.
+1. Student enters quiz session code, `admissionNo`, and the first 6 digits of the registered `phone`.
 2. On page load, Intro.js prompts for a guided tour unless `quizActivityHideGuidedTour` is saved in local storage. The header Tour button can relaunch it later.
 3. App reads `/classrooms/{classCode}` first, then falls back to `classrooms where classCode == enteredCode`.
 4. Login continues only when `classEnabled === true`.
 5. App reads `/classSections/{sectionId}/students/{admissionNo}` first, then falls back to querying by `admissionNo`.
-6. App shows the last 3 digits of the registered phone and verifies the full entered phone.
+6. App shows the first 3 digits of the registered phone as a hint and verifies only the first 6 entered digits against the registered phone prefix.
 7. After verification, the Past Submissions button opens a standalone history page and the student session is stored locally so that page can load the verified student's attempts.
 8. If the quiz session has `questionBankListId`, the app hides manual filters, hides Load Questions, reads that `qb_lists_v1` document automatically, and loads only its published `questionIds` from `qb_questions_v1`.
 9. If the quiz session has `studentDifficultyLevels[admissionNo]`, the app keeps only listed questions matching that student's assigned difficulty. Missing student entries use the quiz session default question selection.
@@ -47,8 +47,8 @@ The app loads Firebase, KaTeX, and Mermaid from CDNs, so internet is required fo
 
 ## Notes
 
-- Quiz session links can include `?classCode=<quiz-session-code>` or `?code=<quiz-session-code>`; the app shows the quiz session name and asks only for admission number and phone.
-- Quiz session links can include `&show-recent=1`; after student verification, the app opens the past-submissions page with the newest submission expanded. For these links, the app also prepopulates the last verified admission number and phone for that quiz session code from local storage.
+- Quiz session links can include `?classCode=<quiz-session-code>` or `?code=<quiz-session-code>`; the app shows the quiz session name and asks only for admission number and the first 6 phone digits.
+- Quiz session links can include `&show-recent=1`; after student verification, the app opens the past-submissions page with the newest submission expanded. For these links, the app also prepopulates the last verified admission number and first 6 phone digits for that quiz session code from local storage.
 - MCQ, True/False, and FIB questions are auto-graded.
 - Short-answer responses are stored with `isCorrect: null` for teacher review.
 - Quiz sessions with `questionBankListId` use the teacher-selected list. If `studentDifficultyLevels` has an entry for the verified admission number, only that difficulty is used. If `randomQuestionTypeCounts` is set, selection is random within each requested type; otherwise every matching listed published question is used.

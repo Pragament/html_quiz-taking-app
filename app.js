@@ -57,7 +57,7 @@ let shouldShowRecentSubmission = false;
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
-const APP_VERSION = '2026.09.25.2';
+const APP_VERSION = '2026.09.25.4';
 const TOUR_STEPS = [
     {
         title: 'Take a Guided Tour?',
@@ -65,7 +65,7 @@ const TOUR_STEPS = [
     },
     {
         title: 'Student Login',
-        intro: 'Enter the quiz session code, admission number, and registered phone to verify the student.',
+        intro: 'Enter the quiz session code, admission number, and first 6 digits of the registered phone to verify the student.',
         element: '#loginView'
     },
     {
@@ -126,6 +126,7 @@ function bindEvents() {
     $('loadQuestionsBtn').addEventListener('click', loadPublishedQuestions);
     $('startQuizBtn').addEventListener('click', startQuiz);
     $('nextQuestionBtn').addEventListener('click', advanceQuestion);
+    $('phoneInput').addEventListener('input', sanitizePhonePrefixInput);
     els.resetBtn.addEventListener('click', resetApp);
     els.tourBtn.addEventListener('click', () => startGuidedTour());
     els.viewSubmissionsBtn.addEventListener('click', () => {
@@ -177,9 +178,14 @@ async function verifyStudent() {
     showLoginError('');
     const classCode = els.classCodeInput.value.trim();
     const admissionNo = $('admissionNoInput').value.trim();
-    const phone = normalizePhone($('phoneInput').value);
-    if (!classCode || !admissionNo || !phone) {
-        showLoginError('Quiz session code, admission number, and full phone number are required.');
+    const phonePrefix = phonePrefixValue($('phoneInput').value);
+    $('phoneInput').value = phonePrefix;
+    if (!classCode || !admissionNo || !phonePrefix) {
+        showLoginError('Quiz session code, admission number, and first 6 phone digits are required.');
+        return;
+    }
+    if (phonePrefix.length !== 6) {
+        showLoginError('Enter exactly the first 6 digits of the registered phone.');
         return;
     }
 
@@ -210,11 +216,12 @@ async function verifyStudent() {
         }
         const { student } = studentResult;
         const registeredPhone = normalizePhone(student.phone);
-        const hint = registeredPhone.slice(-3);
+        const hint = registeredPhone.slice(0, 3);
+        const registeredPhonePrefix = registeredPhone.slice(0, 6);
         els.phoneHintBox.hidden = false;
-        els.phoneHintBox.textContent = `Registered phone ends with ${hint || '---'}.`;
-        if (registeredPhone !== phone) {
-            showLoginError(`Phone number did not match the registered phone ending in ${hint || '---'}.`);
+        els.phoneHintBox.textContent = `Registered phone starts with ${hint || '---'}. Enter only the first 6 digits.`;
+        if (registeredPhonePrefix !== phonePrefix) {
+            showLoginError('Phone digits did not match the registered phone.');
             return;
         }
 
@@ -279,9 +286,9 @@ async function initializeClassroomFromUrl() {
         urlClassroomResult = classroomResult;
         els.classCodeField.hidden = true;
         els.urlClassroomHint.hidden = false;
-        els.urlClassroomHint.textContent = `${classroomTitle(classroomResult)}. Enter admission number and phone to continue.`;
+        els.urlClassroomHint.textContent = `${classroomTitle(classroomResult)}. Enter admission number and the first 6 phone digits to continue.`;
         prefillRecentLoginForUrlClass();
-        setStatus('Quiz session found. Enter admission number and phone.');
+        setStatus('Quiz session found. Enter admission number and first 6 phone digits.');
     } catch (error) {
         els.classCodeInput.readOnly = false;
         showLoginError(error.message || 'Unable to load quiz session from the URL.');
@@ -856,7 +863,7 @@ function resetApp() {
     if (urlClassroomResult) {
         els.classCodeInput.value = urlClassCode;
         els.classCodeInput.readOnly = true;
-        els.urlClassroomHint.textContent = `${classroomTitle(urlClassroomResult)}. Enter admission number and phone to continue.`;
+        els.urlClassroomHint.textContent = `${classroomTitle(urlClassroomResult)}. Enter admission number and the first 6 phone digits to continue.`;
     }
     els.quizFilterControls.hidden = false;
     els.subjectFilterField.hidden = true;
@@ -891,7 +898,7 @@ function saveRecentLogin() {
     if (!classCode) return;
     localStorage.setItem(recentLoginStorageKey(classCode), JSON.stringify({
         admissionNo: session.admissionNo,
-        phone: normalizePhone($('phoneInput').value)
+        phone: phonePrefixValue($('phoneInput').value)
     }));
 }
 
@@ -932,6 +939,14 @@ function setStatus(message) {
 
 function normalizePhone(value) {
     return String(value || '').replace(/\D/g, '');
+}
+
+function phonePrefixValue(value) {
+    return normalizePhone(value).slice(0, 6);
+}
+
+function sanitizePhonePrefixInput(event) {
+    event.target.value = phonePrefixValue(event.target.value);
 }
 
 function normalizeText(value) {

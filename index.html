@@ -6,13 +6,13 @@
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
-    <link rel="stylesheet" href="styles.css?v=2026.09.25.2" />
+    <link rel="stylesheet" href="styles.css?v=2026.09.25.4" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
-    <div class="app-version-badge">v2026.09.25.2</div>
+    <div class="app-version-badge">v2026.09.25.4</div>
     <header class="topbar">
         <div>
             <h1>Quiz Activity</h1>
@@ -41,8 +41,8 @@
                     <input id="admissionNoInput" autocomplete="off" placeholder="Enter admission number" />
                 </label>
                 <label class="field">
-                    <span>Full Phone</span>
-                    <input id="phoneInput" inputmode="tel" autocomplete="tel" placeholder="Enter registered phone number" />
+                    <span>Phone First 6 Digits</span>
+                    <input id="phoneInput" inputmode="numeric" autocomplete="off" maxlength="6" pattern="[0-9]{6}" placeholder="Enter first 6 digits" />
                 </label>
             </div>
             <div class="hint-box" id="urlClassroomHint" hidden></div>
@@ -139,6 +139,6 @@
     </main>
 
     <div id="toast" class="toast"></div>
-    <script type="module" src="app.js?v=2026.09.25.2"></script>
+    <script type="module" src="app.js?v=2026.09.25.4"></script>
 </body>
 </html>
