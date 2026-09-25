@@ -57,7 +57,7 @@ let shouldShowRecentSubmission = false;
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
-const APP_VERSION = '2026.09.25.1';
+const APP_VERSION = '2026.09.25.2';
 const TOUR_STEPS = [
     {
         title: 'Take a Guided Tour?',
@@ -231,7 +231,7 @@ async function verifyStudent() {
         els.classroomLabel.textContent = `${classroom.className || classroom.classCode || classroomId} · ${classroom.sectionName || classroom.sectionId}`;
         saveVerifiedSession();
         configureSetupForClassroom();
-        hasSubmittedCurrentSession = await hasExistingClassroomSubmission();
+        hasSubmittedCurrentSession = hasQuizSessionQuestionList() && await hasExistingClassroomSubmission();
         if (hasSubmittedCurrentSession) {
             $('loadQuestionsBtn').disabled = true;
             els.startQuizBtn.disabled = true;
@@ -248,8 +248,8 @@ async function verifyStudent() {
             window.location.href = submissionsUrl({ showRecent: true });
             return;
         }
-        if (session.classroom.questionBankListId && !hasSubmittedCurrentSession) await loadPublishedQuestions();
-        if (!session.classroom.questionBankListId && !hasSubmittedCurrentSession) await loadTaxonomyFilters();
+        if (hasQuizSessionQuestionList() && !hasSubmittedCurrentSession) await loadPublishedQuestions();
+        if (!hasQuizSessionQuestionList()) await loadTaxonomyFilters();
     } catch (error) {
         showLoginError(error.message || 'Unable to verify student.');
         setStatus('Verification failed');
@@ -403,7 +403,7 @@ function resetLoadedQuestionSelection() {
 
 async function loadPublishedQuestions() {
     if (!session) return toast('Verify student first');
-    if (hasSubmittedCurrentSession) {
+    if (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) {
         els.startQuizBtn.disabled = true;
         toast('A submission already exists for this admission number in this quiz session.');
         setStatus('Already submitted for this quiz session.');
@@ -429,8 +429,8 @@ async function loadPublishedQuestions() {
             const requested = Number($('questionCountInput').value || 10);
             els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'} match these filters. ${Math.min(requested, loadedQuestions.length)} will be used.`;
         }
-        els.startQuizBtn.disabled = hasSubmittedCurrentSession || !loadedQuestions.length;
-        setStatus(hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : 'Questions loaded. You can start the quiz.');
+        els.startQuizBtn.disabled = (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) || !loadedQuestions.length;
+        setStatus(hasQuizSessionQuestionList() && hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : 'Questions loaded. You can start the quiz.');
     } catch (error) {
         els.questionLoadSummary.textContent = error.message || 'Unable to load questions.';
         setStatus('Question load failed');
@@ -535,7 +535,7 @@ function taxonomyLabel(id) {
 }
 
 function startQuiz() {
-    if (hasSubmittedCurrentSession) {
+    if (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) {
         toast('A submission already exists for this admission number in this quiz session.');
         setStatus('Already submitted for this quiz session.');
         els.startQuizBtn.disabled = true;
@@ -699,7 +699,7 @@ async function submitQuiz() {
     };
     try {
         setStatus('Submitting quiz...');
-        if (await hasExistingClassroomSubmission()) {
+        if (hasQuizSessionQuestionList() && await hasExistingClassroomSubmission()) {
             toast('A submission already exists for this admission number in this quiz session.');
             setStatus('Duplicate submission blocked');
             return;
@@ -728,6 +728,10 @@ async function hasExistingClassroomSubmission() {
     return snap.docs.some(existing => existing.data().classroomId === session.classroomId);
 }
 
+function hasQuizSessionQuestionList() {
+    return !!session?.classroom?.questionBankListId;
+}
+
 function submissionDocId() {
     return [
         session.classroomId,
@@ -740,6 +744,15 @@ function gradeAnswer(question, answer) {
     const base = {
         questionId: question.id,
         type: question.type,
+        classId: question.classId || '',
+        subjectId: question.subjectId || '',
+        chapterId: question.chapterId || '',
+        topicId: question.topicId || '',
+        className: question.className || '',
+        subject: question.subject || '',
+        chapter: question.chapter || '',
+        topic: question.topic || '',
+        difficulty: question.difficulty || '',
         promptHtml: question.promptHtml,
         displayAnswer: '',
         isCorrect: null,
