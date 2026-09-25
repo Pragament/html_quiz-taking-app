@@ -6,12 +6,13 @@
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=2026.09.25.2" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
+    <div class="app-version-badge">v2026.09.25.2</div>
     <header class="topbar">
         <div>
             <h1>Quiz Activity</h1>
@@ -61,17 +62,23 @@
                 <span class="step-chip">Step 2</span>
             </div>
             <div class="form-grid" id="quizFilterControls">
-                <label class="field">
+                <label class="field" id="classFilterField">
                     <span>Class</span>
-                    <input id="classFilter" placeholder="Any class" />
+                    <select id="classFilter">
+                        <option value="">Select class</option>
+                    </select>
                 </label>
-                <label class="field">
+                <label class="field" id="subjectFilterField" hidden>
                     <span>Subject</span>
-                    <input id="subjectFilter" placeholder="Any subject" />
+                    <select id="subjectFilter">
+                        <option value="">Select subject</option>
+                    </select>
                 </label>
-                <label class="field">
+                <label class="field" id="chapterFilterField" hidden>
                     <span>Chapter</span>
-                    <input id="chapterFilter" placeholder="Any chapter" />
+                    <select id="chapterFilter">
+                        <option value="">Select chapter</option>
+                    </select>
                 </label>
                 <label class="field">
                     <span>Difficulty</span>
@@ -132,6 +139,6 @@
     </main>
 
     <div id="toast" class="toast"></div>
-    <script type="module" src="app.js"></script>
+    <script type="module" src="app.js?v=2026.09.25.2"></script>
 </body>
 </html>
