@@ -57,7 +57,7 @@ let shouldShowRecentSubmission = false;
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
-const APP_VERSION = '2026.09.25.4';
+const APP_VERSION = '2026.09.25.6';
 const TOUR_STEPS = [
     {
         title: 'Take a Guided Tour?',
@@ -689,6 +689,7 @@ async function submitQuiz() {
         admissionNo: session.admissionNo,
         studentName: session.studentName,
         studentKey: session.studentKey,
+        quizSessionLabel: els.classroomLabel.textContent,
         classId: quiz.filters.classId,
         subjectId: quiz.filters.subjectId,
         chapterId: quiz.filters.chapterId,
