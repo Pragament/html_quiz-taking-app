@@ -33,6 +33,7 @@ const SHOW_RECENT_PARAM = 'show-recent';
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+let reportPromptTexts = [];
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -57,6 +58,13 @@ els.historyList.addEventListener('click', event => {
     const review = tab.closest('.submission-review');
     if (!review) return;
     setReviewFilter(review, tab.dataset.reviewFilter);
+});
+
+els.studentReport.addEventListener('click', event => {
+    const button = event.target.closest('[data-copy-prompt]');
+    if (!button) return;
+    event.preventDefault();
+    copyReportPrompt(Number(button.dataset.copyPrompt));
 });
 
 async function loadSubmissionHistory() {
@@ -105,6 +113,7 @@ function renderHistory(submissions) {
                 <span class="history-summary-main">
                     <strong>${new Date(sub.submittedAtMillis || Date.now()).toLocaleString()}</strong>
                     <span class="score-line">
+                        <span>${esc(submissionSessionLabel(sub))}</span>
                         <span>${sub.questionCount} questions</span>
                         <span>${sub.answeredCount} answered</span>
                         <span>${sub.correctCount}/${sub.gradableCount} auto-graded</span>
@@ -142,6 +151,8 @@ function renderStudentReport(submissions) {
     const mistakes = metrics.answerRows
         .filter(row => row.answer.isCorrect !== true)
         .slice(0, 8);
+    const promptCards = reportPromptCards(metrics, weakChapters, difficultyRows, typeRows, mistakes);
+    reportPromptTexts = promptCards.map(card => card.prompt);
 
     return `
         <div class="report-stack">
@@ -196,6 +207,13 @@ function renderStudentReport(submissions) {
             </section>
             <section class="report-section">
                 <div class="section-title compact-title">
+                    <h2>Copy Prompts</h2>
+                    <span class="step-chip">Plan Support</span>
+                </div>
+                ${renderPromptCards(promptCards)}
+            </section>
+            <section class="report-section">
+                <div class="section-title compact-title">
                     <h2>Mistake Review</h2>
                     <span class="step-chip">${mistakes.length} focus item${mistakes.length === 1 ? '' : 's'}</span>
                 </div>
@@ -207,6 +225,110 @@ function renderStudentReport(submissions) {
             </div>
         </div>
     `;
+}
+
+function reportPromptCards(metrics, weakChapters, difficultyRows, typeRows, mistakes) {
+    const focus = reportFocusSummary(metrics, weakChapters, difficultyRows, typeRows, mistakes);
+    return [
+        {
+            title: 'Identify',
+            prompt: `Identify the priority learning gaps for this student using the quiz report below. Group the gaps by chapter, difficulty, question type, and recurring mistake pattern. Keep the output short and actionable.\n\n${focus}`
+        },
+        {
+            title: 'Diagnose',
+            prompt: `Diagnose likely causes behind this student's errors. For each weak area, infer whether the issue is concept clarity, procedure fluency, careless reading, vocabulary/language, or assessment format. Suggest one quick diagnostic question for each weak area.\n\n${focus}`
+        },
+        {
+            title: 'Reteach',
+            prompt: `Create a remedial teaching mini-plan for this student. Include a 10-minute reteach explanation, one worked example, two guided questions, and one misconception check. Use simple language and focus on the weakest chapters first.\n\n${focus}`
+        },
+        {
+            title: 'Practice',
+            prompt: `Create targeted revision practice for this student. Include easy-to-medium warmups, focused practice for weak chapters, mixed practice, and one reflection question. Make the activities interactive, joyful, and confidence-building.\n\n${focus}`
+        },
+        {
+            title: 'Retest',
+            prompt: `Create a follow-up assessment plan for this student. Include a short retest blueprint with question counts by weak chapter, difficulty, and question type. Add success criteria and what to do if the student scores below 70% again.\n\n${focus}`
+        },
+        {
+            title: 'Targeted Revision',
+            prompt: `Build a one-week targeted revision plan for this student from the report. Include daily goals, time-boxed activities, quick checks, and a final retest. Prioritize remedial teaching, revision activities, and follow-up assessments.\n\n${focus}`
+        },
+        {
+            title: 'Interactive Joyful',
+            prompt: `Suggest interactive and joyful revision activities for this student based on the report. Include games, peer explanation, card sorting, mini-whiteboard checks, retrieval practice, and low-pressure retest ideas. Keep each activity tied to a weak area.\n\n${focus}`
+        }
+    ];
+}
+
+function reportFocusSummary(metrics, weakChapters, difficultyRows, typeRows, mistakes) {
+    const weakChapterText = weakChapters.length
+        ? weakChapters.map(row => `${row.label}: ${percentText(row.accuracy)} accuracy, ${row.correct}/${row.gradable} correct, ${row.attempted} attempted`).join('; ')
+        : 'No chapter below 80% accuracy.';
+    const difficultyText = difficultyRows.length
+        ? difficultyRows.slice(0, 4).map(row => `${row.label}: ${percentText(row.accuracy)} accuracy`).join('; ')
+        : 'No difficulty data available.';
+    const typeText = typeRows.length
+        ? typeRows.slice(0, 4).map(row => `${row.label}: ${percentText(row.accuracy)} accuracy`).join('; ')
+        : 'No question type data available.';
+    const mistakeText = mistakes.length
+        ? mistakes.slice(0, 5).map(row => `${answerChapter(row)} - ${stripPlainText(row.answer.promptHtml).slice(0, 140)} | student answer: ${row.answer.displayAnswer || 'Not answered'}`).join('\n')
+        : 'No incorrect or manual-review items found.';
+    return [
+        `Student report summary: attempts ${metrics.totalSubmissions}, average ${percentText(metrics.averageScore)}, latest ${percentText(metrics.latestScore)}, trend ${trendSummary(metrics.trend)}, answered ${metrics.totalAnswered}/${metrics.totalQuestions}.`,
+        `Weak chapters: ${weakChapterText}`,
+        `Difficulty pattern: ${difficultyText}`,
+        `Question type pattern: ${typeText}`,
+        `Mistake samples:\n${mistakeText}`
+    ].join('\n');
+}
+
+function renderPromptCards(cards) {
+    return `
+        <div class="prompt-card-grid">
+            ${cards.map((card, index) => `
+                <article class="prompt-card">
+                    <div class="review-head">
+                        <strong>${esc(card.title)}</strong>
+                        <button class="btn small-btn" type="button" data-copy-prompt="${index}">Copy</button>
+                    </div>
+                    <p>${esc(promptPreview(card.prompt))}</p>
+                </article>
+            `).join('')}
+        </div>
+    `;
+}
+
+function promptPreview(prompt) {
+    return prompt.split('\n').find(Boolean) || prompt;
+}
+
+async function copyReportPrompt(index) {
+    const prompt = reportPromptTexts[index];
+    if (!prompt) return;
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(prompt);
+        } else {
+            fallbackCopyText(prompt);
+        }
+        toast('Prompt copied.');
+    } catch {
+        fallbackCopyText(prompt);
+        toast('Prompt copied.');
+    }
+}
+
+function fallbackCopyText(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
 }
 
 function reportMetrics(submissions) {
@@ -418,6 +540,7 @@ function renderReviewTabs(answers) {
 function renderSubmissionDetails(submission) {
     return `
         <div class="submission-details">
+            <span><strong>Quiz Session:</strong> ${esc(submissionSessionLabel(submission))}</span>
             <span><strong>Questions:</strong> ${esc(submission.questionCount || 0)}</span>
             <span><strong>Answered:</strong> ${esc(submission.answeredCount || 0)}</span>
             <span><strong>Score:</strong> ${esc(submission.correctCount || 0)}/${esc(submission.gradableCount || 0)}</span>
@@ -425,6 +548,10 @@ function renderSubmissionDetails(submission) {
             <span><strong>Chapters:</strong> ${esc((submission.chapters || []).join(', ') || 'Any chapter')}</span>
         </div>
     `;
+}
+
+function submissionSessionLabel(submission) {
+    return submission.quizSessionLabel || submission.classroomName || submission.classroomId || 'Quiz session';
 }
 
 function renderSubmissionAnswers(answers) {
@@ -515,6 +642,19 @@ function sanitizeRich(value) {
         });
     });
     return template.innerHTML;
+}
+
+function stripPlainText(value) {
+    const template = document.createElement('template');
+    template.innerHTML = sanitizeRich(value);
+    return template.content.textContent.trim().replace(/\s+/g, ' ');
+}
+
+function toast(message) {
+    els.toast.textContent = message;
+    els.toast.classList.add('show');
+    window.clearTimeout(toast.timer);
+    toast.timer = window.setTimeout(() => els.toast.classList.remove('show'), 2200);
 }
 
 function esc(value) {
