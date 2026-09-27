@@ -546,6 +546,11 @@ a.btn {
     margin-top: 10px;
 }
 
+.submission-prompt-section {
+    display: grid;
+    gap: 10px;
+}
+
 .submission-details,
 .ai-review-box {
     border: 1px solid var(--line);

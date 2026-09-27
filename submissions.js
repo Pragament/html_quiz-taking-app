@@ -52,6 +52,13 @@ if (window.mermaid) {
 loadSubmissionHistory();
 
 els.historyList.addEventListener('click', event => {
+    const copyButton = event.target.closest('[data-copy-prompt]');
+    if (copyButton) {
+        event.preventDefault();
+        copyReportPrompt(Number(copyButton.dataset.copyPrompt));
+        return;
+    }
+
     const tab = event.target.closest('[data-review-filter]');
     if (!tab) return;
     event.preventDefault();
@@ -106,6 +113,7 @@ function readVerifiedSession() {
 
 function renderHistory(submissions) {
     const showRecent = new URLSearchParams(window.location.search).get(SHOW_RECENT_PARAM) === '1';
+    reportPromptTexts = [];
     els.studentReport.innerHTML = renderStudentReport(submissions);
     els.historyList.innerHTML = submissions.length ? submissions.map((sub, index) => `
         <details class="history-card" ${showRecent && index === 0 ? 'open' : ''}>
@@ -125,6 +133,7 @@ function renderHistory(submissions) {
             </summary>
             <div class="submission-review">
                 ${renderSubmissionDetails(sub)}
+                ${renderSubmissionPromptSection(sub)}
                 ${renderReviewTabs(sub.answers || [])}
                 ${renderSubmissionAnswers(sub.answers || [])}
             </div>
@@ -140,19 +149,8 @@ function renderHistory(submissions) {
 
 function renderStudentReport(submissions) {
     if (!submissions.length) return '';
-    const metrics = reportMetrics(submissions);
-    const chapterRows = aggregateAnswers(metrics.answerRows, row => answerChapter(row));
-    const difficultyRows = aggregateAnswers(metrics.answerRows, row => row.answer.difficulty || row.sub.difficulty || 'Unspecified');
-    const typeRows = aggregateAnswers(metrics.answerRows, row => TYPE_LABELS[row.answer.type] || row.answer.type || 'Unknown');
-    const weakChapters = chapterRows
-        .filter(row => row.gradable && row.accuracy < 80)
-        .sort((a, b) => a.accuracy - b.accuracy)
-        .slice(0, 4);
-    const mistakes = metrics.answerRows
-        .filter(row => row.answer.isCorrect !== true)
-        .slice(0, 8);
+    const { metrics, chapterRows, difficultyRows, typeRows, weakChapters, mistakes } = reportAnalysis(submissions);
     const promptCards = reportPromptCards(metrics, weakChapters, difficultyRows, typeRows, mistakes);
-    reportPromptTexts = promptCards.map(card => card.prompt);
 
     return `
         <div class="report-stack">
@@ -227,8 +225,37 @@ function renderStudentReport(submissions) {
     `;
 }
 
-function reportPromptCards(metrics, weakChapters, difficultyRows, typeRows, mistakes) {
-    const focus = reportFocusSummary(metrics, weakChapters, difficultyRows, typeRows, mistakes);
+function renderSubmissionPromptSection(submission) {
+    const { metrics, difficultyRows, typeRows, weakChapters, mistakes } = reportAnalysis([submission]);
+    const promptCards = reportPromptCards(metrics, weakChapters, difficultyRows, typeRows, mistakes, submissionSessionLabel(submission));
+    return `
+        <section class="submission-prompt-section">
+            <div class="section-title compact-title">
+                <h2>Copy Prompts</h2>
+                <span class="step-chip">This Submission</span>
+            </div>
+            ${renderPromptCards(promptCards)}
+        </section>
+    `;
+}
+
+function reportAnalysis(submissions) {
+    const metrics = reportMetrics(submissions);
+    const chapterRows = aggregateAnswers(metrics.answerRows, row => answerChapter(row));
+    const difficultyRows = aggregateAnswers(metrics.answerRows, row => row.answer.difficulty || row.sub.difficulty || 'Unspecified');
+    const typeRows = aggregateAnswers(metrics.answerRows, row => TYPE_LABELS[row.answer.type] || row.answer.type || 'Unknown');
+    const weakChapters = chapterRows
+        .filter(row => row.gradable && row.accuracy < 80)
+        .sort((a, b) => a.accuracy - b.accuracy)
+        .slice(0, 4);
+    const mistakes = metrics.answerRows
+        .filter(row => row.answer.isCorrect !== true)
+        .slice(0, 8);
+    return { metrics, chapterRows, difficultyRows, typeRows, weakChapters, mistakes };
+}
+
+function reportPromptCards(metrics, weakChapters, difficultyRows, typeRows, mistakes, sessionLabel = '') {
+    const focus = reportFocusSummary(metrics, weakChapters, difficultyRows, typeRows, mistakes, sessionLabel);
     return [
         {
             title: 'Identify',
@@ -261,7 +288,7 @@ function reportPromptCards(metrics, weakChapters, difficultyRows, typeRows, mist
     ];
 }
 
-function reportFocusSummary(metrics, weakChapters, difficultyRows, typeRows, mistakes) {
+function reportFocusSummary(metrics, weakChapters, difficultyRows, typeRows, mistakes, sessionLabel) {
     const weakChapterText = weakChapters.length
         ? weakChapters.map(row => `${row.label}: ${percentText(row.accuracy)} accuracy, ${row.correct}/${row.gradable} correct, ${row.attempted} attempted`).join('; ')
         : 'No chapter below 80% accuracy.';
@@ -275,18 +302,21 @@ function reportFocusSummary(metrics, weakChapters, difficultyRows, typeRows, mis
         ? mistakes.slice(0, 5).map(row => `${answerChapter(row)} - ${stripPlainText(row.answer.promptHtml).slice(0, 140)} | student answer: ${row.answer.displayAnswer || 'Not answered'}`).join('\n')
         : 'No incorrect or manual-review items found.';
     return [
+        sessionLabel ? `Quiz session: ${sessionLabel}` : '',
         `Student report summary: attempts ${metrics.totalSubmissions}, average ${percentText(metrics.averageScore)}, latest ${percentText(metrics.latestScore)}, trend ${trendSummary(metrics.trend)}, answered ${metrics.totalAnswered}/${metrics.totalQuestions}.`,
         `Weak chapters: ${weakChapterText}`,
         `Difficulty pattern: ${difficultyText}`,
         `Question type pattern: ${typeText}`,
         `Mistake samples:\n${mistakeText}`
-    ].join('\n');
+    ].filter(Boolean).join('\n');
 }
 
 function renderPromptCards(cards) {
     return `
         <div class="prompt-card-grid">
-            ${cards.map((card, index) => `
+            ${cards.map(card => {
+                const index = reportPromptTexts.push(card.prompt) - 1;
+                return `
                 <article class="prompt-card">
                     <div class="review-head">
                         <strong>${esc(card.title)}</strong>
@@ -294,7 +324,8 @@ function renderPromptCards(cards) {
                     </div>
                     <p>${esc(promptPreview(card.prompt))}</p>
                 </article>
-            `).join('')}
+            `;
+            }).join('')}
         </div>
     `;
 }

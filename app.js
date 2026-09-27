@@ -57,7 +57,7 @@ let shouldShowRecentSubmission = false;
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
-const APP_VERSION = '2026.09.25.6';
+const APP_VERSION = '2026.09.27.1';
 const TOUR_STEPS = [
     {
         title: 'Take a Guided Tour?',
