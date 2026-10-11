@@ -53,11 +53,18 @@ let taxonomyById = new Map();
 let urlClassCode = '';
 let urlClassroomResult = null;
 let shouldShowRecentSubmission = false;
+const offlineAi = {
+    status: 'idle',
+    embedPipe: null,
+    grammarPipe: null,
+    loadPromise: null
+};
 
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
-const APP_VERSION = '2026.09.27.1';
+const APP_VERSION = '2026.10.11.3';
+const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 const TOUR_STEPS = [
     {
         title: 'Take a Guided Tour?',
@@ -82,6 +89,7 @@ const TOUR_STEPS = [
 const $ = (id) => document.getElementById(id);
 const els = {
     statusText: $('statusText'),
+    offlineAiStatus: $('offlineAiStatus'),
     resetBtn: $('resetBtn'),
     tourBtn: $('tourBtn'),
     viewSubmissionsBtn: $('viewSubmissionsBtn'),
@@ -101,12 +109,17 @@ const els = {
     chapterFilterField: $('chapterFilterField'),
     questionLoadSummary: $('questionLoadSummary'),
     startQuizBtn: $('startQuizBtn'),
+    quizPanel: $('quizPanel'),
+    explanationFramePanel: $('explanationFramePanel'),
+    explanationFrame: $('explanationFrame'),
+    explanationOpenLink: $('explanationOpenLink'),
     progressSummary: $('progressSummary'),
     questionMeta: $('questionMeta'),
     questionTitle: $('questionTitle'),
     questionTypeLabel: $('questionTypeLabel'),
     questionPrompt: $('questionPrompt'),
     answerArea: $('answerArea'),
+    instantFeedbackPanel: $('instantFeedbackPanel'),
     resultSummary: $('resultSummary'),
     reviewList: $('reviewList'),
     timerLabel: $('timerLabel'),
@@ -118,6 +131,7 @@ if (window.mermaid) {
 }
 
 bindEvents();
+preloadOfflineAiModels();
 initializeClassroomFromUrl();
 maybePromptGuidedTour();
 
@@ -140,10 +154,48 @@ function bindEvents() {
     $('classFilter').addEventListener('change', handleClassFilterChange);
     $('subjectFilter').addEventListener('change', handleSubjectFilterChange);
     $('chapterFilter').addEventListener('change', resetLoadedQuestionSelection);
-    ['difficultyFilter', 'questionCountInput'].forEach(id => {
+    ['difficultyFilter', 'questionCountInput', 'explanationOnlyFilter'].forEach(id => {
         $(id).addEventListener('input', resetLoadedQuestionSelection);
         $(id).addEventListener('change', resetLoadedQuestionSelection);
     });
+}
+
+function preloadOfflineAiModels() {
+    if (offlineAi.loadPromise) return offlineAi.loadPromise;
+    offlineAi.status = 'loading';
+    renderOfflineAiStatus();
+    offlineAi.loadPromise = import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0/dist/transformers.min.js')
+        .then(async ({ pipeline, env }) => {
+            env.allowLocalModels = false;
+            env.useBrowserCache = true;
+            const [embedResult, grammarResult] = await Promise.allSettled([
+                pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' }),
+                pipeline('text2text-generation', 'Xenova/flan-t5-small', { dtype: 'q8' })
+            ]);
+            if (embedResult.status === 'fulfilled') offlineAi.embedPipe = embedResult.value;
+            if (grammarResult.status === 'fulfilled') offlineAi.grammarPipe = grammarResult.value;
+            offlineAi.status = offlineAi.embedPipe ? 'ready' : 'fallback';
+            renderOfflineAiStatus();
+        })
+        .catch(error => {
+            console.warn('Offline AI model preload failed:', error);
+            offlineAi.status = 'fallback';
+            renderOfflineAiStatus();
+        });
+    return offlineAi.loadPromise;
+}
+
+function renderOfflineAiStatus() {
+    if (!els.offlineAiStatus) return;
+    els.offlineAiStatus.classList.toggle('ready', offlineAi.status === 'ready');
+    els.offlineAiStatus.classList.toggle('fallback', offlineAi.status === 'fallback');
+    if (offlineAi.status === 'ready') {
+        els.offlineAiStatus.textContent = 'Offline AI ready';
+    } else if (offlineAi.status === 'fallback') {
+        els.offlineAiStatus.textContent = 'Offline AI basic';
+    } else {
+        els.offlineAiStatus.textContent = 'Offline AI loading';
+    }
 }
 
 function maybePromptGuidedTour() {
@@ -434,7 +486,8 @@ async function loadPublishedQuestions() {
                 .map(d => ({ id: d.id, ...d.data() }))
                 .filter(q => matchesQuizFilters(q, filters));
             const requested = Number($('questionCountInput').value || 10);
-            els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'} match these filters. ${Math.min(requested, loadedQuestions.length)} will be used.`;
+            const explanationSummary = filters.explanationOnly ? ' with explanations' : '';
+            els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'}${explanationSummary} match these filters. ${Math.min(requested, loadedQuestions.length)} will be used.`;
         }
         els.startQuizBtn.disabled = (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) || !loadedQuestions.length;
         setStatus(hasQuizSessionQuestionList() && hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : 'Questions loaded. You can start the quiz.');
@@ -525,7 +578,9 @@ function getQuizFilters() {
         className: taxonomyLabel(classId),
         subject: taxonomyLabel(subjectId),
         chapter: taxonomyLabel(chapterId),
-        difficulty: $('difficultyFilter').value.trim()
+        difficulty: $('difficultyFilter').value.trim(),
+        explanationOnly: $('explanationOnlyFilter').checked,
+        instantFeedback: $('instantFeedbackFilter').checked
     };
 }
 
@@ -534,11 +589,31 @@ function matchesQuizFilters(question, filters) {
     if (filters.subjectId && question.subjectId !== filters.subjectId) return false;
     if (filters.chapterId && question.chapterId !== filters.chapterId) return false;
     if (filters.difficulty && question.difficulty !== filters.difficulty) return false;
+    if (filters.explanationOnly && !validExplanationUrl(question.explanationUrl)) return false;
     return true;
 }
 
 function taxonomyLabel(id) {
     return id ? taxonomyById.get(id)?.label || '' : '';
+}
+
+function validExplanationUrl(value) {
+    try {
+        const url = new URL(String(value || ''));
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+    } catch {
+        return '';
+    }
+}
+
+function groupQuestionsByExplanationUrl(questions) {
+    const grouped = new Map();
+    questions.forEach(question => {
+        const key = validExplanationUrl(question.explanationUrl) || `question:${question.id}`;
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(question);
+    });
+    return Array.from(grouped.values()).flat();
 }
 
 function startQuiz() {
@@ -556,10 +631,13 @@ function startQuiz() {
     const selectedQuestions = hasClassroomList
         ? loadedQuestions
         : shuffle(loadedQuestions).slice(0, count);
-    const selected = selectedQuestions.map(snapshotQuestion);
+    const selected = groupQuestionsByExplanationUrl(selectedQuestions).map(snapshotQuestion);
     quiz = {
         questions: selected,
         answers: selected.map(q => emptyAnswer(q)),
+        instantFeedback: $('instantFeedbackFilter').checked,
+        feedback: selected.map(() => null),
+        feedbackShown: selected.map(() => false),
         startedAt: Date.now(),
         submitted: false,
         filters: getQuizFilters()
@@ -584,6 +662,8 @@ function snapshotQuestion(question) {
         chapter: taxonomyLabel(question.chapterId) || question.chapter || '',
         topic: taxonomyLabel(question.topicId) || question.topic || '',
         difficulty: question.difficulty || '',
+        explanationUrl: validExplanationUrl(question.explanationUrl),
+        explanation: question.explanation || '',
         promptHtml: question.promptHtml || '',
         options: (question.options || []).map(opt => ({ html: opt.html || '', correct: !!opt.correct })),
         trueAnswer: !!question.trueAnswer,
@@ -606,16 +686,118 @@ function emptyAnswer(question) {
 function renderQuiz() {
     const question = quiz.questions[currentIndex];
     const answer = quiz.answers[currentIndex];
-    els.progressSummary.textContent = `Question ${currentIndex + 1} of ${quiz.questions.length} · ${quiz.answers.filter((a, i) => isAnswered(quiz.questions[i], a)).length} answered`;
+    renderExplanationFrame(question.explanationUrl);
+    const score = instantFeedbackScore();
+    const scoreSummary = quiz.instantFeedback && score.max ? ` · Score ${score.scored}/${score.max}` : '';
+    els.progressSummary.textContent = `Question ${currentIndex + 1} of ${quiz.questions.length} · ${quiz.answers.filter((a, i) => isAnswered(quiz.questions[i], a)).length} answered${scoreSummary}`;
     els.timerLabel.textContent = elapsedLabel(Date.now() - quiz.startedAt);
     els.questionMeta.textContent = `${question.className || 'Class'} · ${question.subject || 'Subject'} · ${question.chapter || 'Chapter'} · ${question.difficulty || 'Difficulty'}`;
     els.questionTitle.textContent = `Question ${currentIndex + 1}`;
     els.questionTypeLabel.textContent = TYPE_LABELS[question.type] || question.type;
     els.questionPrompt.innerHTML = sanitizeRich(question.promptHtml);
     els.answerArea.innerHTML = answerInputHtml(question, answer);
-    $('nextQuestionBtn').textContent = currentIndex === quiz.questions.length - 1 ? 'Submit Quiz' : 'Next';
+    renderInstantFeedbackPanel();
+    if (quiz.instantFeedback && quiz.feedbackShown[currentIndex]) {
+        disableAnswerInputs();
+    }
+    $('nextQuestionBtn').textContent = nextQuestionButtonLabel();
     renderRich(els.questionPrompt);
     renderRich(els.answerArea);
+    renderRich(els.instantFeedbackPanel);
+}
+
+function renderExplanationFrame(explanationUrl) {
+    if (!validExplanationUrl(explanationUrl)) {
+        els.quizPanel.classList.remove('has-explanation');
+        els.explanationFramePanel.hidden = true;
+        els.explanationFrame.removeAttribute('src');
+        els.explanationOpenLink.href = '#';
+        return;
+    }
+    els.quizPanel.classList.add('has-explanation');
+    els.explanationFramePanel.hidden = false;
+    if (els.explanationFrame.getAttribute('src') !== explanationUrl) {
+        els.explanationFrame.src = explanationUrl;
+    }
+    els.explanationOpenLink.href = explanationUrl;
+}
+
+function renderInstantFeedbackPanel() {
+    if (!quiz?.instantFeedback || !quiz.feedbackShown[currentIndex]) {
+        els.instantFeedbackPanel.hidden = true;
+        els.instantFeedbackPanel.innerHTML = '';
+        return;
+    }
+    const feedback = quiz.feedback[currentIndex] || gradeAnswer(quiz.questions[currentIndex], quiz.answers[currentIndex]);
+    const points = feedbackPoints(feedback);
+    const total = instantFeedbackScore();
+    const status = feedbackStatus(feedback);
+    els.instantFeedbackPanel.hidden = false;
+    els.instantFeedbackPanel.innerHTML = `
+        <div class="review-head">
+            <strong>Instant Feedback</strong>
+            <span class="status-chip ${status.className}">${status.label}</span>
+        </div>
+        <div class="feedback-grid">
+            <div><strong>Question points:</strong> ${formatPoints(points.scored)}/${formatPoints(points.max)}</div>
+            <div><strong>Total points:</strong> ${formatPoints(total.scored)}/${formatPoints(total.max)}</div>
+            <div><strong>Correct answer:</strong> ${esc(feedback.correctAnswer || 'Teacher review')}</div>
+        </div>
+        ${feedback.aiReview?.reason ? `<div class="feedback-reasons"><strong>Reason for points:</strong> ${esc(feedback.aiReview.reason)}</div>` : ''}
+        ${feedback.explanation ? `<div class="feedback-explanation"><strong>Explanation:</strong> ${esc(feedback.explanation)}</div>` : ''}
+    `;
+}
+
+function feedbackPoints(feedback) {
+    if (feedback?.aiReview) {
+        return {
+            scored: Number(feedback.aiReview.marks || 0),
+            max: Number(feedback.aiReview.maxMarks || 0)
+        };
+    }
+    if (!feedback || feedback.isCorrect === null) return { scored: 0, max: 0 };
+    return { scored: feedback.isCorrect ? 1 : 0, max: 1 };
+}
+
+function feedbackStatus(feedback) {
+    if (feedback?.aiReview) {
+        const points = feedbackPoints(feedback);
+        const ratio = points.max ? points.scored / points.max : 0;
+        if (!points.max) return { label: 'Manual Review', className: 'manual' };
+        if (ratio >= 0.9) return { label: 'Offline AI: Correct', className: 'correct' };
+        if (ratio >= 0.45) return { label: 'Offline AI: Partial', className: 'manual' };
+        return { label: 'Offline AI: Revise', className: 'wrong' };
+    }
+    if (feedback.isCorrect === null) return { label: 'Manual Review', className: 'manual' };
+    return feedback.isCorrect
+        ? { label: 'Correct', className: 'correct' }
+        : { label: 'Incorrect', className: 'wrong' };
+}
+
+function formatPoints(value) {
+    const number = Number(value || 0);
+    return Number.isInteger(number) ? String(number) : number.toFixed(1).replace(/\.0$/, '');
+}
+
+function instantFeedbackScore() {
+    if (!quiz?.feedback) return { scored: 0, max: 0 };
+    return quiz.feedback.reduce((total, feedback) => {
+        const points = feedbackPoints(feedback);
+        total.scored += points.scored;
+        total.max += points.max;
+        return total;
+    }, { scored: 0, max: 0 });
+}
+
+function disableAnswerInputs() {
+    els.answerArea.querySelectorAll('input, textarea, select, button').forEach(control => {
+        control.disabled = true;
+    });
+}
+
+function nextQuestionButtonLabel() {
+    if (quiz.instantFeedback && !quiz.feedbackShown[currentIndex]) return 'Check Answer';
+    return currentIndex === quiz.questions.length - 1 ? 'Submit Quiz' : 'Next';
 }
 
 function answerInputHtml(question, answer) {
@@ -651,6 +833,7 @@ function answerInputHtml(question, answer) {
 
 function saveCurrentAnswer() {
     if (!quiz) return;
+    if (quiz.instantFeedback && quiz.feedbackShown[currentIndex]) return;
     const question = quiz.questions[currentIndex];
     const answer = quiz.answers[currentIndex];
     if (question.type === 'mcq') {
@@ -665,8 +848,12 @@ function saveCurrentAnswer() {
     }
 }
 
-function advanceQuestion() {
+async function advanceQuestion() {
     saveCurrentAnswer();
+    if (quiz.instantFeedback && !quiz.feedbackShown[currentIndex]) {
+        await showInstantFeedback();
+        return;
+    }
     if (currentIndex === quiz.questions.length - 1) {
         submitQuiz();
         return;
@@ -675,12 +862,26 @@ function advanceQuestion() {
     renderQuiz();
 }
 
+async function showInstantFeedback() {
+    const question = quiz.questions[currentIndex];
+    const nextButton = $('nextQuestionBtn');
+    nextButton.disabled = true;
+    nextButton.textContent = question.type === 'short_answer' ? 'Assessing...' : 'Checking...';
+    quiz.feedback[currentIndex] = await gradeAnswerWithOfflineAi(question, quiz.answers[currentIndex]);
+    quiz.feedbackShown[currentIndex] = true;
+    renderQuiz();
+    nextButton.disabled = false;
+}
+
 async function submitQuiz() {
     if (!quiz || quiz.submitted) return;
     saveCurrentAnswer();
     const unanswered = quiz.answers.filter((a, i) => !isAnswered(quiz.questions[i], a)).length;
     if (unanswered && !confirm(`${unanswered} question(s) are unanswered. Submit anyway?`)) return;
-    const gradedAnswers = quiz.questions.map((question, index) => gradeAnswer(question, quiz.answers[index]));
+    const gradedAnswers = await Promise.all(quiz.questions.map((question, index) => {
+        if (quiz.feedback[index]) return quiz.feedback[index];
+        return gradeAnswerWithOfflineAi(question, quiz.answers[index]);
+    }));
     const gradable = gradedAnswers.filter(a => a.isCorrect !== null);
     const correct = gradable.filter(a => a.isCorrect).length;
     const submission = {
@@ -761,6 +962,8 @@ function gradeAnswer(question, answer) {
         chapter: question.chapter || '',
         topic: question.topic || '',
         difficulty: question.difficulty || '',
+        explanationUrl: validExplanationUrl(question.explanationUrl),
+        explanation: question.explanation || '',
         promptHtml: question.promptHtml,
         displayAnswer: '',
         isCorrect: null,
@@ -786,9 +989,32 @@ function gradeAnswer(question, answer) {
         });
     } else {
         base.displayAnswer = answer.shortAnswer || 'Not answered';
-        base.isCorrect = null;
+        base.aiReview = assessShortAnswerOffline(question, answer.shortAnswer || '');
+        base.isCorrect = base.aiReview.maxMarks > 0 ? base.aiReview.marks >= base.aiReview.maxMarks * 0.9 : null;
     }
     return base;
+}
+
+async function gradeAnswerWithOfflineAi(question, answer) {
+    const graded = gradeAnswer(question, answer);
+    if (question.type !== 'short_answer' || !answer.shortAnswer || !offlineAi.embedPipe) return graded;
+    const semanticScore = await offlineSemanticScore(correctAnswerText(question), answer.shortAnswer);
+    graded.aiReview = assessShortAnswerOffline(question, answer.shortAnswer || '', semanticScore);
+    graded.isCorrect = graded.aiReview.maxMarks > 0 ? graded.aiReview.marks >= graded.aiReview.maxMarks * 0.9 : null;
+    return graded;
+}
+
+async function offlineSemanticScore(expectedAnswer, studentAnswer) {
+    try {
+        const [expectedVector, studentVector] = await Promise.all([
+            offlineAi.embedPipe(expectedAnswer, { pooling: 'mean', normalize: true }),
+            offlineAi.embedPipe(studentAnswer, { pooling: 'mean', normalize: true })
+        ]);
+        return cosineSimilarity(Array.from(expectedVector.data), Array.from(studentVector.data));
+    } catch (error) {
+        console.warn('Offline semantic scoring failed:', error);
+        return null;
+    }
 }
 
 function correctAnswerText(question) {
@@ -802,6 +1028,116 @@ function correctAnswerText(question) {
     return stripHtml(question.shortAnswerHtml || '');
 }
 
+function assessShortAnswerOffline(question, studentAnswer, semanticScore = null) {
+    const expectedAnswer = stripHtml(question.shortAnswerHtml || '');
+    const student = String(studentAnswer || '').trim();
+    const maxMarks = expectedAnswer.trim() ? 1 : 0;
+    if (!maxMarks) {
+        return {
+            marks: 0,
+            maxMarks,
+            reason: 'No expected answer is available for offline scoring, so this response needs teacher review.',
+            mode: 'offline_ai'
+        };
+    }
+    if (!student) {
+        return {
+            marks: 0,
+            maxMarks,
+            reason: 'No student answer was submitted.',
+            mode: 'offline_ai'
+        };
+    }
+
+    const expectedTerms = unique(contentTerms(expectedAnswer));
+    const studentTerms = new Set(contentTerms(student));
+    const matchedTerms = expectedTerms.filter(term => studentTerms.has(term));
+    const missingTerms = expectedTerms.filter(term => !studentTerms.has(term));
+    const termCoverage = expectedTerms.length ? matchedTerms.length / expectedTerms.length : 0;
+
+    const expectedNumbers = unique(extractMathTokens(expectedAnswer));
+    const studentNumbers = new Set(extractMathTokens(student));
+    const matchedNumbers = expectedNumbers.filter(token => studentNumbers.has(token));
+    const numberCoverage = expectedNumbers.length ? matchedNumbers.length / expectedNumbers.length : 1;
+
+    const expectedNormalized = normalizeAssessmentText(expectedAnswer);
+    const studentNormalized = normalizeAssessmentText(student);
+    const exactBonus = expectedNormalized && expectedNormalized === studentNormalized ? 0.2 : 0;
+    const lengthRatio = expectedAnswer.length ? Math.min(student.length / expectedAnswer.length, 1) : 1;
+    const lengthScore = Math.min(lengthRatio / 0.7, 1);
+    const hasMath = expectedNumbers.length > 0;
+    const heuristicScore = hasMath
+        ? numberCoverage * 0.55 + termCoverage * 0.35 + lengthScore * 0.1 + exactBonus
+        : termCoverage * 0.75 + lengthScore * 0.25 + exactBonus;
+    const rawScore = semanticScore === null
+        ? heuristicScore
+        : heuristicScore * 0.7 + Math.max(0, Math.min(semanticScore, 1)) * 0.3;
+    const marks = Math.round(Math.max(0, Math.min(rawScore, 1)) * maxMarks * 10) / 10;
+
+    const reasons = [
+        `Matched ${matchedTerms.length}/${expectedTerms.length || 0} key idea${expectedTerms.length === 1 ? '' : 's'}${matchedTerms.length ? ` (${matchedTerms.slice(0, 6).join(', ')})` : ''}.`
+    ];
+    if (expectedNumbers.length) {
+        reasons.push(`Matched ${matchedNumbers.length}/${expectedNumbers.length} important value${expectedNumbers.length === 1 ? '' : 's'}${matchedNumbers.length ? ` (${matchedNumbers.slice(0, 6).join(', ')})` : ''}.`);
+    }
+    if (semanticScore !== null) {
+        reasons.push(`Offline AI semantic similarity: ${Math.round(Math.max(0, Math.min(semanticScore, 1)) * 100)}%.`);
+    }
+    if (missingTerms.length) {
+        reasons.push(`Missing or unclear: ${missingTerms.slice(0, 6).join(', ')}${missingTerms.length > 6 ? '...' : ''}.`);
+    }
+    if (lengthScore < 0.75) {
+        reasons.push('Answer is much shorter than the expected answer.');
+    }
+
+    return {
+        marks,
+        maxMarks,
+        reason: reasons.join(' '),
+        mode: 'offline_ai',
+        matchedTerms: matchedTerms.slice(0, 12),
+        missingTerms: missingTerms.slice(0, 12),
+        matchedValues: matchedNumbers,
+        expectedValues: expectedNumbers
+    };
+}
+
+function contentTerms(value) {
+    const tokens = normalizeAssessmentText(value).match(/[a-z0-9]+/g) || [];
+    return tokens
+        .map(token => token.replace(/s$/, ''))
+        .filter(token => token.length > 2 && !SHORT_ANSWER_STOP_WORDS.has(token));
+}
+
+function extractMathTokens(value) {
+    return (String(value || '').toLowerCase().match(/-?\d+(?:\.\d+)?(?:\/-?\d+(?:\.\d+)?)?|[αβ]|alpha|beta|x²|x\^2|[a-z]\^2/g) || [])
+        .map(token => token.replace(/\s+/g, ''));
+}
+
+function normalizeAssessmentText(value) {
+    return String(value || '')
+        .toLowerCase()
+        .replace(/[α]/g, 'alpha')
+        .replace(/[β]/g, 'beta')
+        .replace(/[²]/g, '^2')
+        .replace(/[^a-z0-9/\-.^]+/g, ' ')
+        .trim()
+        .replace(/\s+/g, ' ');
+}
+
+function cosineSimilarity(a, b) {
+    if (!a?.length || !b?.length || a.length !== b.length) return 0;
+    let dot = 0;
+    let aMagnitude = 0;
+    let bMagnitude = 0;
+    for (let index = 0; index < a.length; index += 1) {
+        dot += a[index] * b[index];
+        aMagnitude += a[index] * a[index];
+        bMagnitude += b[index] * b[index];
+    }
+    return dot / (Math.sqrt(aMagnitude) * Math.sqrt(bMagnitude) || 1);
+}
+
 function renderResult(submission) {
     els.resultSummary.textContent = `${submission.correctCount} correct out of ${submission.gradableCount} auto-graded questions. Short answers are stored for teacher review.`;
     els.reviewList.innerHTML = submission.answers.map((answer, index) => `
@@ -813,6 +1149,7 @@ function renderResult(submission) {
             <div class="rich-content">${sanitizeRich(answer.promptHtml)}</div>
             <div><strong>Your answer:</strong> ${esc(answer.displayAnswer)}</div>
             <div><strong>Correct answer:</strong> ${esc(answer.correctAnswer || 'Teacher review')}</div>
+            ${answer.explanation ? `<div><strong>Explanation:</strong> ${esc(answer.explanation)}</div>` : ''}
         </article>
     `).join('');
     renderRich(els.reviewList);
@@ -872,6 +1209,8 @@ function resetApp() {
     populateTaxonomySelect('classFilter', taxonomyItems.filter(item => item.type === 'class'), 'Select class');
     populateTaxonomySelect('subjectFilter', [], 'Select subject');
     populateTaxonomySelect('chapterFilter', [], 'Select chapter');
+    $('explanationOnlyFilter').checked = true;
+    $('instantFeedbackFilter').checked = true;
     $('loadQuestionsBtn').hidden = false;
     $('loadQuestionsBtn').disabled = false;
     els.startQuizBtn.disabled = true;

@@ -24,10 +24,11 @@ Independent responsive quiz-taking app for students. It verifies a student throu
 8. If the quiz session has `questionBankListId`, the app hides manual filters, hides Load Questions, reads that `qb_lists_v1` document automatically, and loads only its published `questionIds` from `qb_questions_v1`.
 9. If the quiz session has `studentDifficultyLevels[admissionNo]`, the app keeps only listed questions matching that student's assigned difficulty. Missing student entries use the quiz session default question selection.
 10. If the quiz session also has `randomQuestionTypeCounts`, the app randomly picks up to that many questions per type from the selected list, then shows the picked questions in the list's original order.
-11. If the quiz session does not have `questionBankListId`, the student loads published questions from `qb_questions_v1` using the setup filters.
-12. After Start, the selected question list is local in memory so navigation continues offline until Submit.
-13. Submit writes to `qb_quiz_submissions_v1` using one deterministic submission document per quiz session, section, and admission number.
-14. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first, with expandable question-by-question review filtered by All, Correct, Incorrect, or Manual. If `answers[].aiReview` exists, students also see marks, max marks, and the review reason.
+11. If the quiz session does not have `questionBankListId`, the student loads published questions from `qb_questions_v1` using the setup filters. By default, Step 2 keeps only questions with `explanationUrl`.
+12. After Start, the selected question list is local in memory so navigation continues offline until Submit. Questions are grouped by `explanationUrl`, and the explanation opens in an embedded frame beside the related questions on desktop.
+13. Step 2 enables instant feedback by default. Students check each answer before moving on, see correct or incorrect status, correct answer, question points, running total points, and the question `explanation` text when available. Short-answer questions are scored on-device with offline AI models when the browser-cached models are ready, with a local heuristic fallback while models download in the background.
+14. Submit writes to `qb_quiz_submissions_v1` using one deterministic submission document per quiz session, section, and admission number.
+15. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first, with expandable question-by-question review filtered by All, Correct, Incorrect, or Manual. If `answers[].aiReview` exists, students also see marks, max marks, and the review reason.
 
 ## Run Locally
 

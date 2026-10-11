@@ -107,6 +107,12 @@ Supported question types:
 - `fib` - uses `fibBanks`, including multiple banks in one question.
 - `short_answer` - stores the student response but does not auto-grade.
 
+Optional learning support fields:
+
+- `explanationUrl` - student-facing topic explanation URL. Step 2 can filter to questions with this field, and the quiz view embeds the URL beside grouped related questions.
+- `explanation` - explanation text shown in the instant feedback panel when Step 2 instant feedback is enabled.
+- Short-answer instant feedback stores an `aiReview` object on the submitted answer with offline marks, max marks, and the reason for the awarded points.
+
 ### `qb_lists_v1`
 
 Path:
