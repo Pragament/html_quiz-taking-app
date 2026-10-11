@@ -67,7 +67,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
-const APP_VERSION = '2026.10.11.5';
+const APP_VERSION = '2026.10.11.6';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 const TOUR_STEPS = [
     {
@@ -119,6 +119,8 @@ const els = {
     explanationFrame: $('explanationFrame'),
     explanationOpenLink: $('explanationOpenLink'),
     progressSummary: $('progressSummary'),
+    selectionMemoryPanel: $('selectionMemoryPanel'),
+    selectionMemoryDetails: $('selectionMemoryDetails'),
     questionMeta: $('questionMeta'),
     questionTitle: $('questionTitle'),
     questionTypeLabel: $('questionTypeLabel'),
@@ -688,6 +690,10 @@ function resetLoadedQuestionSelection() {
     loadedQuestions = [];
     els.startQuizBtn.disabled = true;
     els.questionLoadSummary.textContent = 'Load questions to see availability.';
+    if (els.selectionMemoryPanel) {
+        els.selectionMemoryPanel.hidden = true;
+        els.selectionMemoryDetails.innerHTML = '';
+    }
 }
 
 async function loadPublishedQuestions() {
@@ -717,7 +723,7 @@ async function loadPublishedQuestions() {
                 .filter(q => matchesQuizFilters(q, filters));
             const requested = Number($('questionCountInput').value || 10);
             const explanationSummary = filters.explanationOnly ? ' with explanations' : '';
-            els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'}${explanationSummary} match these filters. ${Math.min(requested, loadedQuestions.length)} will be used.`;
+            els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'}${explanationSummary} match these filters. All are downloaded locally; ${Math.min(requested, loadedQuestions.length)} will be chosen using student performance memory at Start.`;
         }
         els.startQuizBtn.disabled = (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) || !loadedQuestions.length;
         setStatus(hasQuizSessionQuestionList() && hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : 'Questions loaded. You can start the quiz.');
@@ -852,7 +858,216 @@ function groupQuestionsByExplanationUrl(questions) {
     return Array.from(grouped.values()).flat();
 }
 
-function startQuiz() {
+async function selectAdaptiveQuestions(questions, count) {
+    setStatus('Choosing questions from student performance memory...');
+    let memory;
+    try {
+        memory = await buildStudentPerformanceMemory();
+    } catch (error) {
+        console.warn('Student performance memory unavailable:', error);
+        memory = emptyStudentPerformanceMemory();
+        memory.memoryError = error.message || 'Unable to read previous submissions.';
+    }
+    const ranked = await rankQuestionsForStudent(questions, memory);
+    const selected = ranked.slice(0, count).map(item => item.question);
+    selected.selectionMemory = {
+        mode: offlineAi.embedPipe ? 'Offline AI semantic ranking' : 'Basic local ranking',
+        summary: studentMemorySummary(memory),
+        picked: ranked.slice(0, count).map((item, index) => ({
+            index: index + 1,
+            questionId: item.question.id,
+            title: stripHtml(item.question.promptHtml || '').slice(0, 140) || `${TYPE_LABELS[item.question.type] || item.question.type} question`,
+            type: TYPE_LABELS[item.question.type] || item.question.type,
+            chapter: taxonomyLabel(item.question.chapterId) || item.question.chapter || 'Any chapter',
+            score: item.score,
+            reasons: item.reasons
+        }))
+    };
+    return selected;
+}
+
+async function buildStudentPerformanceMemory() {
+    const memory = emptyStudentPerformanceMemory();
+    if (!session?.studentKey) return memory;
+    const snap = await getDocs(query(
+        collection(db, COLLECTIONS.submissions),
+        where('studentKey', '==', session.studentKey)
+    ));
+    memory.submissions = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+    memory.submissions.forEach(submission => {
+        (submission.answers || []).forEach(answer => {
+            memory.answers.push(answer);
+            if (answer.questionId) memory.answeredIds.add(answer.questionId);
+            const result = answerPerformanceResult(answer);
+            if (result === 'weak') {
+                if (answer.questionId) memory.missedIds.add(answer.questionId);
+                incrementMap(memory.weakChapters, answer.chapter || submission.chapter || '');
+                incrementMap(memory.weakTypes, answer.type || '');
+                incrementMap(memory.weakDifficulties, answer.difficulty || submission.difficulty || '');
+                addWeightedTerms(memory.weakTerms, answerMemoryText(answer), 1);
+            } else if (result === 'strong') {
+                if (answer.questionId) memory.correctIds.add(answer.questionId);
+                addWeightedTerms(memory.strongTerms, answerMemoryText(answer), 0.5);
+            }
+        });
+    });
+    return memory;
+}
+
+function emptyStudentPerformanceMemory() {
+    return {
+        submissions: [],
+        answers: [],
+        answeredIds: new Set(),
+        missedIds: new Set(),
+        correctIds: new Set(),
+        weakChapters: new Map(),
+        weakTypes: new Map(),
+        weakDifficulties: new Map(),
+        weakTerms: new Map(),
+        strongTerms: new Map()
+    };
+}
+
+function answerPerformanceResult(answer) {
+    if (answer.aiReview?.maxMarks) {
+        const ratio = Number(answer.aiReview.marks || 0) / Number(answer.aiReview.maxMarks || 1);
+        if (ratio < 0.7) return 'weak';
+        if (ratio >= 0.85) return 'strong';
+        return 'mixed';
+    }
+    if (answer.isCorrect === false || answer.isCorrect === null) return 'weak';
+    if (answer.isCorrect === true) return 'strong';
+    return 'mixed';
+}
+
+function answerMemoryText(answer) {
+    return [
+        stripHtml(answer.promptHtml || ''),
+        answer.correctAnswer || '',
+        answer.displayAnswer || '',
+        answer.chapter || '',
+        answer.topic || '',
+        answer.type || ''
+    ].join(' ');
+}
+
+async function rankQuestionsForStudent(questions, memory) {
+    const weakTerms = topMapKeys(memory.weakTerms, 18);
+    const weakMemoryText = weakTerms.join(' ');
+    const ranked = await Promise.all(questions.map(async (question, index) => {
+        let score = Math.max(0, questions.length - index) * 0.001;
+        const reasons = [];
+        if (memory.missedIds.has(question.id)) {
+            score += 5;
+            reasons.push('Previously missed this exact question, so it is useful for retest.');
+        } else if (memory.correctIds.has(question.id)) {
+            score -= 3;
+            reasons.push('Previously answered correctly, so it is deprioritized unless needed for balance.');
+        } else {
+            score += 2;
+            reasons.push('New question for this student.');
+        }
+
+        const chapter = taxonomyLabel(question.chapterId) || question.chapter || '';
+        const type = question.type || '';
+        const difficulty = question.difficulty || '';
+        const chapterWeakness = memory.weakChapters.get(chapter) || 0;
+        const typeWeakness = memory.weakTypes.get(type) || 0;
+        const difficultyWeakness = memory.weakDifficulties.get(difficulty) || 0;
+        if (chapterWeakness) {
+            score += Math.min(chapterWeakness, 4) * 1.5;
+            reasons.push(`Targets weak chapter memory: ${chapter} (${chapterWeakness} past issue${chapterWeakness === 1 ? '' : 's'}).`);
+        }
+        if (typeWeakness) {
+            score += Math.min(typeWeakness, 4);
+            reasons.push(`Targets weak question type memory: ${TYPE_LABELS[type] || type}.`);
+        }
+        if (difficultyWeakness) {
+            score += Math.min(difficultyWeakness, 3) * 0.6;
+            reasons.push(`Matches difficulty where the student has struggled: ${difficulty}.`);
+        }
+
+        const questionText = questionMemoryText(question);
+        if (weakMemoryText) {
+            if (offlineAi.embedPipe) {
+                const similarity = await offlineSemanticScore(weakMemoryText, questionText);
+                if (similarity !== null) {
+                    score += similarity * 4;
+                    reasons.push(`Offline AI similarity to weak-memory concepts: ${Math.round(similarity * 100)}%.`);
+                }
+            } else {
+                const overlap = termOverlapScore(weakTerms, contentTerms(questionText));
+                if (overlap) {
+                    score += overlap * 4;
+                    reasons.push(`Keyword overlap with weak-memory concepts: ${Math.round(overlap * 100)}%.`);
+                }
+            }
+        }
+        if (validExplanationUrl(question.explanationUrl)) {
+            score += 0.5;
+            reasons.push('Has an explanation link for supported revision.');
+        }
+        if (!reasons.length) reasons.push('Selected to keep the quiz balanced across the matching pool.');
+        return { question, score, reasons };
+    }));
+    return ranked.sort((a, b) => b.score - a.score);
+}
+
+function questionMemoryText(question) {
+    return [
+        stripHtml(question.promptHtml || ''),
+        correctAnswerText(question),
+        taxonomyLabel(question.chapterId) || question.chapter || '',
+        taxonomyLabel(question.topicId) || question.topic || '',
+        question.type || '',
+        question.difficulty || '',
+        question.explanation || ''
+    ].join(' ');
+}
+
+function studentMemorySummary(memory) {
+    if (!memory.answers.length) {
+        return [
+            memory.memoryError ? `Previous-answer memory unavailable: ${memory.memoryError}` : 'No previous answered questions found for this student.',
+            'Selection favors new questions and questions with explanations.'
+        ];
+    }
+    const weakChapters = topMapKeys(memory.weakChapters, 4);
+    const weakTypes = topMapKeys(memory.weakTypes, 4).map(type => TYPE_LABELS[type] || type);
+    const weakTerms = topMapKeys(memory.weakTerms, 8);
+    return [
+        `${memory.answers.length} past answer${memory.answers.length === 1 ? '' : 's'} found across ${memory.submissions.length} submission${memory.submissions.length === 1 ? '' : 's'}.`,
+        weakChapters.length ? `Weak chapters: ${weakChapters.join(', ')}.` : 'No repeated weak chapter found.',
+        weakTypes.length ? `Weak question types: ${weakTypes.join(', ')}.` : 'No repeated weak question type found.',
+        weakTerms.length ? `Memory terms: ${weakTerms.join(', ')}.` : 'No weak-memory terms extracted.'
+    ];
+}
+
+function incrementMap(map, key, amount = 1) {
+    if (!key) return;
+    map.set(key, (map.get(key) || 0) + amount);
+}
+
+function addWeightedTerms(map, text, weight) {
+    contentTerms(text).forEach(term => incrementMap(map, term, weight));
+}
+
+function topMapKeys(map, limit) {
+    return Array.from(map.entries())
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, limit)
+        .map(([key]) => key)
+        .filter(Boolean);
+}
+
+function termOverlapScore(referenceTerms, candidateTerms) {
+    if (!referenceTerms.length || !candidateTerms.length) return 0;
+    const candidate = new Set(candidateTerms);
+    return referenceTerms.filter(term => candidate.has(term)).length / referenceTerms.length;
+}
+
+async function startQuiz() {
     if (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) {
         toast('A submission already exists for this admission number in this quiz session.');
         setStatus('Already submitted for this quiz session.');
@@ -866,7 +1081,7 @@ function startQuiz() {
         : Math.max(1, Number($('questionCountInput').value || loadedQuestions.length));
     const selectedQuestions = hasClassroomList
         ? loadedQuestions
-        : shuffle(loadedQuestions).slice(0, count);
+        : await selectAdaptiveQuestions(loadedQuestions, Math.min(count, loadedQuestions.length));
     const selected = groupQuestionsByExplanationUrl(selectedQuestions).map(snapshotQuestion);
     quiz = {
         questions: selected,
@@ -874,6 +1089,7 @@ function startQuiz() {
         instantFeedback: $('instantFeedbackFilter').checked,
         feedback: selected.map(() => null),
         feedbackShown: selected.map(() => false),
+        selectionMemory: selectedQuestions.selectionMemory || null,
         startedAt: Date.now(),
         submitted: false,
         filters: getQuizFilters()
@@ -882,6 +1098,7 @@ function startQuiz() {
     startTimer();
     showOnly('quiz');
     setStatus('Quiz started. Questions are now local until submit.');
+    renderSelectionMemory();
     renderQuiz();
 }
 
@@ -940,6 +1157,35 @@ function renderQuiz() {
     renderRich(els.questionPrompt);
     renderRich(els.answerArea);
     renderRich(els.instantFeedbackPanel);
+}
+
+function renderSelectionMemory() {
+    const memory = quiz?.selectionMemory;
+    if (!els.selectionMemoryPanel || !els.selectionMemoryDetails) return;
+    if (!memory) {
+        els.selectionMemoryPanel.hidden = true;
+        els.selectionMemoryDetails.innerHTML = '';
+        return;
+    }
+    els.selectionMemoryPanel.hidden = false;
+    els.selectionMemoryDetails.innerHTML = `
+        <div class="selection-memory-summary">
+            <strong>${esc(memory.mode)}</strong>
+            ${(memory.summary || []).map(item => `<p>${esc(item)}</p>`).join('')}
+        </div>
+        <ol class="selection-reason-list">
+            ${(memory.picked || []).map(item => `
+                <li>
+                    <strong>Q${item.index}: ${esc(item.type)} - ${esc(item.chapter)}</strong>
+                    <div>${esc(item.title)}</div>
+                    <div class="score-line">Selection score: ${formatPoints(item.score)}</div>
+                    <ul>
+                        ${(item.reasons || []).map(reason => `<li>${esc(reason)}</li>`).join('')}
+                    </ul>
+                </li>
+            `).join('')}
+        </ol>
+    `;
 }
 
 function renderExplanationFrame(explanationUrl) {
@@ -1742,6 +1988,10 @@ function resetApp() {
     $('loadQuestionsBtn').disabled = false;
     els.startQuizBtn.disabled = true;
     els.questionLoadSummary.textContent = 'Load questions to see availability.';
+    if (els.selectionMemoryPanel) {
+        els.selectionMemoryPanel.hidden = true;
+        els.selectionMemoryDetails.innerHTML = '';
+    }
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
     showLoginError('');
     setStatus('Enter your quiz session details to begin');

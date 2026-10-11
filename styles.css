@@ -459,6 +459,47 @@ a.btn {
     top: 14px;
 }
 
+.selection-memory-panel {
+    margin-top: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-soft);
+    padding: 10px 12px;
+    font-size: 13px;
+}
+
+.selection-memory-panel summary {
+    cursor: pointer;
+    color: #40566d;
+    font-weight: 900;
+}
+
+.selection-memory-summary {
+    display: grid;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.selection-memory-summary p {
+    margin: 0;
+}
+
+.selection-reason-list {
+    display: grid;
+    gap: 12px;
+    margin: 12px 0 0;
+    padding-left: 20px;
+}
+
+.selection-reason-list li {
+    padding-left: 2px;
+}
+
+.selection-reason-list ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+}
+
 .meta-line {
     display: block;
     margin-bottom: 4px;
