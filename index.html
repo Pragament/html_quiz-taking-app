@@ -6,13 +6,13 @@
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
-    <link rel="stylesheet" href="styles.css?v=2026.10.11.7" />
+    <link rel="stylesheet" href="styles.css?v=2026.10.11.16" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
-    <div class="app-version-badge">v2026.10.11.7</div>
+    <div class="app-version-badge">v2026.10.11.16</div>
     <header class="topbar">
         <div>
             <h1>Quiz Activity</h1>
@@ -64,65 +64,101 @@
                 <span class="step-chip">Step 2</span>
             </div>
             <div class="form-grid" id="quizFilterControls">
-                <label class="field" id="classFilterField">
-                    <span>Class</span>
-                    <select id="classFilter">
-                        <option value="">Select class</option>
-                    </select>
-                </label>
-                <label class="field" id="subjectFilterField" hidden>
-                    <span>Subject</span>
-                    <select id="subjectFilter">
-                        <option value="">Select subject</option>
-                    </select>
-                </label>
-                <label class="field" id="chapterFilterField" hidden>
-                    <span>Chapter</span>
-                    <select id="chapterFilter">
-                        <option value="">Select chapter</option>
-                    </select>
-                </label>
-                <label class="field">
-                    <span>Difficulty</span>
-                    <select id="difficultyFilter">
-                        <option value="">Any</option>
-                        <option>Easy</option>
-                        <option>Medium</option>
-                        <option>Hard</option>
-                        <option>Very Hard</option>
-                    </select>
-                </label>
-                <label class="field">
-                    <span>Question Count</span>
-                    <input id="questionCountInput" type="number" min="1" value="10" />
-                </label>
-                <fieldset class="field checkbox-group-field">
-                    <legend>Question Types</legend>
-                    <label class="checkbox-field">
-                        <input class="question-type-filter" type="checkbox" value="mcq" checked />
-                        <span>MCQ</span>
+                <fieldset class="setup-group">
+                    <legend>Filters</legend>
+                    <label class="field" id="classFilterField">
+                        <span>Class</span>
+                        <select id="classFilter">
+                            <option value="">Select class</option>
+                        </select>
                     </label>
-                    <label class="checkbox-field">
-                        <input class="question-type-filter" type="checkbox" value="true_false" checked />
-                        <span>True/False</span>
+                    <label class="field" id="subjectFilterField" hidden>
+                        <span>Subject</span>
+                        <select id="subjectFilter">
+                            <option value="">Select subject</option>
+                        </select>
                     </label>
-                    <label class="checkbox-field">
-                        <input class="question-type-filter" type="checkbox" value="fib" checked />
-                        <span>Fill in the Blank</span>
+                    <label class="field" id="chapterFilterField" hidden>
+                        <span>Chapter</span>
+                        <select id="chapterFilter">
+                            <option value="">Select chapter</option>
+                        </select>
                     </label>
-                    <label class="checkbox-field">
-                        <input class="question-type-filter" type="checkbox" value="short_answer" checked />
-                        <span>Short Answer</span>
+                    <label class="field">
+                        <span>Difficulty</span>
+                        <select id="difficultyFilter">
+                            <option value="">Any</option>
+                            <option>Easy</option>
+                            <option>Medium</option>
+                            <option>Hard</option>
+                            <option>Very Hard</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Question Count</span>
+                        <input id="questionCountInput" type="number" min="1" value="10" />
+                    </label>
+                    <fieldset class="field checkbox-group-field">
+                        <legend>Question Types</legend>
+                        <label class="checkbox-field">
+                            <input class="question-type-filter" type="checkbox" value="mcq" checked />
+                            <span>MCQ</span>
+                        </label>
+                        <label class="checkbox-field">
+                            <input class="question-type-filter" type="checkbox" value="true_false" checked />
+                            <span>True/False</span>
+                        </label>
+                        <label class="checkbox-field">
+                            <input class="question-type-filter" type="checkbox" value="fib" checked />
+                            <span>Fill in the Blank</span>
+                        </label>
+                        <label class="checkbox-field">
+                            <input class="question-type-filter" type="checkbox" value="short_answer" checked />
+                            <span>Short Answer</span>
+                        </label>
+                    </fieldset>
+                    <label class="field checkbox-field">
+                        <input id="explanationOnlyFilter" type="checkbox" />
+                        <span>Only questions with explanation</span>
+                    </label>
+                    <label class="field checkbox-field">
+                        <input id="translationOnlyFilter" type="checkbox" />
+                        <span>Only questions with translations</span>
                     </label>
                 </fieldset>
-                <label class="field checkbox-field">
-                    <input id="explanationOnlyFilter" type="checkbox" checked />
-                    <span>Only questions with explanation</span>
-                </label>
-                <label class="field checkbox-field">
-                    <input id="instantFeedbackFilter" type="checkbox" checked />
-                    <span>Instant feedback after each question</span>
-                </label>
+                <fieldset class="setup-group">
+                    <legend>Quiz Settings</legend>
+                    <label class="field checkbox-field">
+                        <input id="instantFeedbackFilter" type="checkbox" checked />
+                        <span>Instant feedback after each question</span>
+                    </label>
+                    <label class="field checkbox-field">
+                        <input id="speakerButtonFilter" type="checkbox" checked />
+                        <span>Show speaker before question text</span>
+                    </label>
+                    <label class="field checkbox-field">
+                        <input id="listenRespondFilter" type="checkbox" />
+                        <span>Listen and respond</span>
+                    </label>
+                    <label class="field checkbox-field">
+                        <input id="fibChoiceBankFilter" type="checkbox" checked />
+                        <span>Clickable answer bank for multi-blank fill in the blanks</span>
+                    </label>
+                    <label class="field checkbox-field">
+                        <input id="shortAnswerWordBankFilter" type="checkbox" checked />
+                        <span>Clickable word bank for short answers</span>
+                    </label>
+                    <label class="field">
+                        <span>Voice</span>
+                        <select id="voiceSelect">
+                            <option value="">System default</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Speed <strong id="voiceRateValue">1.0x</strong></span>
+                        <input id="voiceRateInput" type="range" min="0.6" max="1.4" step="0.1" value="1" />
+                    </label>
+                </fieldset>
             </div>
             <div class="quiz-summary" id="questionLoadSummary">Load questions to see availability.</div>
             <div class="actions">
@@ -159,6 +195,7 @@
                         </div>
                         <span id="questionTypeLabel" class="step-chip"></span>
                     </div>
+                    <div class="question-audio-controls" id="questionAudioControls" hidden></div>
                     <div id="questionPrompt" class="rich-content"></div>
                     <div id="answerArea" class="answer-area"></div>
                     <div id="instantFeedbackPanel" class="instant-feedback-panel" hidden></div>
@@ -182,6 +219,6 @@
     </main>
 
     <div id="toast" class="toast"></div>
-    <script type="module" src="app.js?v=2026.10.11.7"></script>
+    <script type="module" src="app.js?v=2026.10.11.16"></script>
 </body>
 </html>

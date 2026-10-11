@@ -53,6 +53,7 @@ let taxonomyById = new Map();
 let urlClassCode = '';
 let urlClassroomResult = null;
 let shouldShowRecentSubmission = false;
+let speechVoices = [];
 const offlineAi = {
     status: 'idle',
     embedPipe: null,
@@ -67,7 +68,9 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
-const APP_VERSION = '2026.10.11.7';
+const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
+const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
+const APP_VERSION = '2026.10.11.16';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 const TOUR_STEPS = [
     {
@@ -124,6 +127,7 @@ const els = {
     questionMeta: $('questionMeta'),
     questionTitle: $('questionTitle'),
     questionTypeLabel: $('questionTypeLabel'),
+    questionAudioControls: $('questionAudioControls'),
     questionPrompt: $('questionPrompt'),
     answerArea: $('answerArea'),
     instantFeedbackPanel: $('instantFeedbackPanel'),
@@ -138,6 +142,7 @@ if (window.mermaid) {
 }
 
 bindEvents();
+initializeSpeechControls();
 preloadOfflineAiModels();
 initializeClassroomFromUrl();
 maybePromptGuidedTour();
@@ -164,6 +169,44 @@ function bindEvents() {
             retryOfflineAiModels();
             return;
         }
+        if (event.target.closest('[data-speak-question]')) {
+            speakCurrentQuestion();
+            return;
+        }
+        if (event.target.closest('[data-reveal-question]')) {
+            revealCurrentQuestionText();
+            return;
+        }
+        const fibChoice = event.target.closest('[data-fib-choice]');
+        if (fibChoice) {
+            toggleFibChoice(fibChoice.dataset.fibChoice);
+            return;
+        }
+        const fibClear = event.target.closest('[data-fib-clear]');
+        if (fibClear) {
+            clearFibChoice(Number(fibClear.dataset.fibClear));
+            return;
+        }
+        const shortChoice = event.target.closest('[data-short-choice-index]');
+        if (shortChoice) {
+            toggleShortAnswerChoice(Number(shortChoice.dataset.shortChoiceIndex));
+            return;
+        }
+        const shortSelected = event.target.closest('[data-short-selected-index]');
+        if (shortSelected) {
+            removeShortAnswerChoice(Number(shortSelected.dataset.shortSelectedIndex));
+            return;
+        }
+        const shortInsert = event.target.closest('[data-short-insert-index]');
+        if (shortInsert) {
+            setShortAnswerInsertIndex(Number(shortInsert.dataset.shortInsertIndex));
+            return;
+        }
+        const shortMode = event.target.closest('[data-short-answer-mode]');
+        if (shortMode) {
+            setShortAnswerMode(shortMode.dataset.shortAnswerMode);
+            return;
+        }
         if (els.offlineAiDetails.hidden) return;
         if (els.offlineAiStatus.contains(event.target) || els.offlineAiDetails.contains(event.target)) return;
         setOfflineAiDetailsOpen(false);
@@ -174,13 +217,92 @@ function bindEvents() {
     $('classFilter').addEventListener('change', handleClassFilterChange);
     $('subjectFilter').addEventListener('change', handleSubjectFilterChange);
     $('chapterFilter').addEventListener('change', resetLoadedQuestionSelection);
-    ['difficultyFilter', 'questionCountInput', 'explanationOnlyFilter'].forEach(id => {
+    document.addEventListener('change', event => {
+        if (event.target.id === 'translationSelect') {
+            setQuestionTranslation(event.target.value);
+        }
+    });
+    ['difficultyFilter', 'questionCountInput', 'explanationOnlyFilter', 'translationOnlyFilter'].forEach(id => {
         $(id).addEventListener('input', resetLoadedQuestionSelection);
         $(id).addEventListener('change', resetLoadedQuestionSelection);
+    });
+    $('voiceSelect').addEventListener('change', event => saveSpeechPreferences(event.target.value, currentSpeechRate()));
+    $('voiceRateInput').addEventListener('input', event => handleVoiceRateChange(event.target.value));
+    document.addEventListener('change', event => {
+        if (event.target.id === 'liveVoiceSelect') saveSpeechPreferences(event.target.value, currentSpeechRate());
+    });
+    document.addEventListener('input', event => {
+        if (event.target.id === 'liveVoiceRateInput') handleVoiceRateChange(event.target.value);
     });
     document.querySelectorAll('.question-type-filter').forEach(input => {
         input.addEventListener('change', resetLoadedQuestionSelection);
     });
+}
+
+function initializeSpeechControls() {
+    const savedRate = Number(localStorage.getItem(SPEECH_RATE_KEY) || 1);
+    $('voiceRateInput').value = Number.isFinite(savedRate) ? Math.min(Math.max(savedRate, 0.6), 1.4) : 1;
+    updateVoiceRateLabels();
+    populateVoiceSelect();
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.onvoiceschanged = populateVoiceSelect;
+    }
+}
+
+function populateVoiceSelect() {
+    const select = $('voiceSelect');
+    const selectedVoice = localStorage.getItem(SPEECH_VOICE_KEY) || '';
+    speechVoices = 'speechSynthesis' in window ? window.speechSynthesis.getVoices() : [];
+    select.innerHTML = voiceSelectOptions(selectedVoice);
+    select.value = speechVoices.some(voice => speechVoiceId(voice) === selectedVoice) ? selectedVoice : '';
+    const liveSelect = $('liveVoiceSelect');
+    if (liveSelect) {
+        liveSelect.innerHTML = voiceSelectOptions(selectedVoice);
+        liveSelect.value = select.value;
+    }
+}
+
+function voiceSelectOptions() {
+    return [
+        '<option value="">System default</option>',
+        ...speechVoices.map(voice => {
+            const id = speechVoiceId(voice);
+            return `<option value="${esc(id)}">${esc(`${voice.name} (${voice.lang})`)}</option>`;
+        })
+    ].join('');
+}
+
+function handleVoiceRateChange(rate) {
+    saveSpeechPreferences(currentSpeechVoice(), rate);
+}
+
+function updateVoiceRateLabels() {
+    const label = `${currentSpeechRate().toFixed(1)}x`;
+    $('voiceRateValue').textContent = label;
+    const liveLabel = $('liveVoiceRateValue');
+    if (liveLabel) liveLabel.textContent = label;
+}
+
+function currentSpeechVoice() {
+    return $('voiceSelect')?.value || localStorage.getItem(SPEECH_VOICE_KEY) || '';
+}
+
+function currentSpeechRate() {
+    const value = Number($('voiceRateInput')?.value || localStorage.getItem(SPEECH_RATE_KEY) || 1);
+    return Number.isFinite(value) ? Math.min(Math.max(value, 0.6), 1.4) : 1;
+}
+
+function saveSpeechPreferences(voiceId = currentSpeechVoice(), rate = currentSpeechRate()) {
+    const normalizedRate = Number.isFinite(Number(rate)) ? Math.min(Math.max(Number(rate), 0.6), 1.4) : 1;
+    localStorage.setItem(SPEECH_VOICE_KEY, voiceId);
+    localStorage.setItem(SPEECH_RATE_KEY, String(normalizedRate));
+    $('voiceSelect').value = voiceId;
+    $('voiceRateInput').value = normalizedRate;
+    const liveSelect = $('liveVoiceSelect');
+    if (liveSelect) liveSelect.value = voiceId;
+    const liveRate = $('liveVoiceRateInput');
+    if (liveRate) liveRate.value = normalizedRate;
+    updateVoiceRateLabels();
 }
 
 function preloadOfflineAiModels() {
@@ -722,8 +844,11 @@ async function loadPublishedQuestions() {
                 .map(d => ({ id: d.id, ...d.data() }))
                 .filter(q => matchesQuizFilters(q, filters));
             const requested = Number($('questionCountInput').value || 10);
-            const explanationSummary = filters.explanationOnly ? ' with explanations' : '';
-            els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'}${explanationSummary} match these filters. All are downloaded locally; ${Math.min(requested, loadedQuestions.length)} will be chosen using student performance memory at Start.`;
+            const filterSummary = [
+                filters.explanationOnly ? 'with explanations' : '',
+                filters.translationOnly ? 'with translations' : ''
+            ].filter(Boolean).join(' and ');
+            els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'}${filterSummary ? ` ${filterSummary}` : ''} match these filters. All are downloaded locally; ${Math.min(requested, loadedQuestions.length)} will be chosen using student performance memory at Start.`;
         }
         els.startQuizBtn.disabled = (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) || !loadedQuestions.length;
         setStatus(hasQuizSessionQuestionList() && hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : 'Questions loaded. You can start the quiz.');
@@ -817,6 +942,7 @@ function getQuizFilters() {
         questionTypes: selectedQuestionTypes(),
         difficulty: $('difficultyFilter').value.trim(),
         explanationOnly: $('explanationOnlyFilter').checked,
+        translationOnly: $('translationOnlyFilter').checked,
         instantFeedback: $('instantFeedbackFilter').checked
     };
 }
@@ -828,7 +954,12 @@ function matchesQuizFilters(question, filters) {
     if (filters.questionTypes.length && !filters.questionTypes.includes(question.type)) return false;
     if (filters.difficulty && question.difficulty !== filters.difficulty) return false;
     if (filters.explanationOnly && !validExplanationUrl(question.explanationUrl)) return false;
+    if (filters.translationOnly && !hasQuestionTranslation(question)) return false;
     return true;
+}
+
+function hasQuestionTranslation(question) {
+    return questionTranslationLanguages({ translations: normalizeTranslations(question.translations) }).length > 0;
 }
 
 function selectedQuestionTypes() {
@@ -1114,11 +1245,15 @@ async function reorderRemainingQuestions() {
     const answerByQuestionId = new Map(quiz.answers.map(answer => [answer.questionId, answer]));
     const feedbackByQuestionId = new Map(quiz.feedback.map((feedback, index) => [quiz.questions[index].id, feedback]));
     const feedbackShownByQuestionId = new Map(quiz.feedbackShown.map((shown, index) => [quiz.questions[index].id, shown]));
+    const promptRevealedByQuestionId = new Map(quiz.promptRevealed.map((shown, index) => [quiz.questions[index].id, shown]));
+    const translationByQuestionId = new Map(quiz.translationChoices.map((language, index) => [quiz.questions[index].id, language]));
     const lockedQuestions = quiz.questions.slice(0, currentIndex + 1);
     quiz.questions = [...lockedQuestions, ...ranked.map(item => item.question)];
     quiz.answers = quiz.questions.map(question => answerByQuestionId.get(question.id) || emptyAnswer(question));
     quiz.feedback = quiz.questions.map(question => feedbackByQuestionId.get(question.id) || null);
     quiz.feedbackShown = quiz.questions.map(question => feedbackShownByQuestionId.get(question.id) || false);
+    quiz.promptRevealed = quiz.questions.map(question => promptRevealedByQuestionId.get(question.id) ?? !quiz.listenRespond);
+    quiz.translationChoices = quiz.questions.map(question => translationByQuestionId.get(question.id) || '');
     refreshSelectionMemoryDisplay(ranked);
 }
 
@@ -1164,6 +1299,12 @@ async function startQuiz() {
         questions: selected,
         answers: selected.map(q => emptyAnswer(q)),
         instantFeedback: $('instantFeedbackFilter').checked,
+        showSpeaker: $('speakerButtonFilter').checked,
+        listenRespond: $('listenRespondFilter').checked,
+        fibChoiceBank: $('fibChoiceBankFilter').checked,
+        shortAnswerWordBank: $('shortAnswerWordBankFilter').checked,
+        promptRevealed: selected.map(() => !$('listenRespondFilter').checked),
+        translationChoices: selected.map(() => ''),
         feedback: selected.map(() => null),
         feedbackShown: selected.map(() => false),
         selectionMemory: selectedQuestions.selectionMemory || null,
@@ -1182,7 +1323,7 @@ async function startQuiz() {
 }
 
 function snapshotQuestion(question) {
-    return {
+    const snapshot = {
         id: question.id,
         type: question.type,
         classId: question.classId || '',
@@ -1200,8 +1341,103 @@ function snapshotQuestion(question) {
         options: (question.options || []).map(opt => ({ html: opt.html || '', correct: !!opt.correct })),
         trueAnswer: !!question.trueAnswer,
         fibBanks: (question.fibBanks || []).map(bank => ({ label: bank.label || 'Blank', answers: bank.answers || [] })),
-        shortAnswerHtml: question.shortAnswerHtml || ''
+        shortAnswerHtml: question.shortAnswerHtml || '',
+        translations: normalizeTranslations(question.translations)
     };
+    snapshot.fibChoiceOptions = buildFibChoiceOptions(snapshot);
+    snapshot.shortAnswerWordOptions = buildShortAnswerWordOptions(snapshot);
+    snapshot.shortAnswerTranslationWordOptions = buildShortAnswerTranslationWordOptions(snapshot);
+    return snapshot;
+}
+
+function normalizeTranslations(translations) {
+    if (!translations || typeof translations !== 'object') return {};
+    return Object.entries(translations).reduce((normalized, [language, value]) => {
+        if (!language || !value || typeof value !== 'object') return normalized;
+        const entry = {
+            question: String(value.question || '').trim(),
+            answer: String(value.answer || '').trim(),
+            options: Array.isArray(value.options) ? value.options.map(option => String(option || '').trim()) : []
+        };
+        if (entry.question || entry.answer || entry.options.some(Boolean)) {
+            normalized[language] = entry;
+        }
+        return normalized;
+    }, {});
+}
+
+function questionTranslationLanguages(question) {
+    return Object.keys(question.translations || {}).filter(language => {
+        const translation = question.translations[language];
+        return translation?.question || translation?.answer || translation?.options?.some(Boolean);
+    });
+}
+
+function currentTranslationLanguage() {
+    return quiz?.translationChoices?.[currentIndex] || '';
+}
+
+function currentTranslation(question) {
+    const language = currentTranslationLanguage();
+    return questionTranslation(question, language);
+}
+
+function questionTranslation(question, language) {
+    return language ? question.translations?.[language] || null : null;
+}
+
+function questionDisplayPrompt(question) {
+    return questionPromptText(question, currentTranslationLanguage());
+}
+
+function questionDisplayOptions(question) {
+    return questionOptionTexts(question, currentTranslationLanguage());
+}
+
+function questionDisplayShortAnswer(question) {
+    return questionShortAnswerText(question, currentTranslationLanguage());
+}
+
+function questionPromptText(question, language = '') {
+    return questionTranslation(question, language)?.question || question.promptHtml || '';
+}
+
+function questionOptionTexts(question, language = '') {
+    const translatedOptions = questionTranslation(question, language)?.options || [];
+    return (question.options || []).map((option, index) => translatedOptions[index] || option.html || '');
+}
+
+function questionShortAnswerText(question, language = '') {
+    return questionTranslation(question, language)?.answer || question.shortAnswerHtml || '';
+}
+
+function currentShortAnswerWordOptions(question) {
+    const language = currentTranslationLanguage();
+    return language && question.shortAnswerTranslationWordOptions?.[language]?.length
+        ? question.shortAnswerTranslationWordOptions[language]
+        : question.shortAnswerWordOptions || [];
+}
+
+function buildFibChoiceOptions(question) {
+    if (question.type !== 'fib' || (question.fibBanks || []).length <= 1) return [];
+    const primaryAnswers = (question.fibBanks || [])
+        .map(bank => String(bank.answers?.[0] || '').trim())
+        .filter(Boolean);
+    return shuffle(primaryAnswers);
+}
+
+function buildShortAnswerWordOptions(question) {
+    if (question.type !== 'short_answer') return [];
+    return shuffle(shortAnswerWords(question.shortAnswerHtml));
+}
+
+function buildShortAnswerTranslationWordOptions(question) {
+    if (question.type !== 'short_answer') return {};
+    return Object.entries(question.translations || {}).reduce((options, [language, translation]) => {
+        const words = shortAnswerWords(translation.answer || '');
+        if (words.length) options[language] = shuffle(words);
+        return options;
+    }, {});
 }
 
 function emptyAnswer(question) {
@@ -1211,6 +1447,10 @@ function emptyAnswer(question) {
         selectedOptions: [],
         trueFalseAnswer: null,
         fibAnswers: (question.fibBanks || []).map(() => ''),
+        shortAnswerChoiceIndices: [],
+        shortAnswerInsertIndex: 0,
+        shortAnswerMode: 'word_bank',
+        translationLanguage: '',
         shortAnswer: ''
     };
 }
@@ -1226,16 +1466,203 @@ function renderQuiz() {
     els.questionMeta.textContent = `${question.className || 'Class'} · ${question.subject || 'Subject'} · ${question.chapter || 'Chapter'} · ${question.difficulty || 'Difficulty'}`;
     els.questionTitle.textContent = `Question ${currentIndex + 1}`;
     els.questionTypeLabel.textContent = TYPE_LABELS[question.type] || question.type;
-    els.questionPrompt.innerHTML = sanitizeRich(question.promptHtml);
+    els.questionPrompt.innerHTML = sanitizeRich(questionDisplayPrompt(question));
+    renderQuestionAudioControls(question);
+    els.questionPrompt.hidden = quiz.listenRespond && !quiz.promptRevealed[currentIndex];
     els.answerArea.innerHTML = answerInputHtml(question, answer);
     renderInstantFeedbackPanel();
     if (quiz.instantFeedback && quiz.feedbackShown[currentIndex]) {
         disableAnswerInputs();
     }
     $('nextQuestionBtn').textContent = nextQuestionButtonLabel();
-    renderRich(els.questionPrompt);
+    if (!els.questionPrompt.hidden) renderRich(els.questionPrompt);
     renderRich(els.answerArea);
     renderRich(els.instantFeedbackPanel);
+}
+
+function renderQuestionAudioControls(question) {
+    const shouldShow = quiz.showSpeaker || quiz.listenRespond || questionTranslationLanguages(question).length;
+    els.questionAudioControls.hidden = !shouldShow;
+    if (!shouldShow) {
+        els.questionAudioControls.innerHTML = '';
+        return;
+    }
+    const canSpeak = 'speechSynthesis' in window;
+    const hiddenText = quiz.listenRespond && !quiz.promptRevealed[currentIndex];
+    els.questionAudioControls.innerHTML = `
+        ${renderTranslationControl(question)}
+        ${quiz.showSpeaker || quiz.listenRespond ? `<button class="btn small-btn" type="button" data-speak-question ${canSpeak ? '' : 'disabled'}>${canSpeak ? 'Listen' : 'Speech unavailable'}</button>` : ''}
+        ${hiddenText ? '<button class="btn small-btn" type="button" data-reveal-question>View question text</button>' : ''}
+        ${quiz.listenRespond ? `<span class="meta-line">${hiddenText ? 'Question text hidden for listen and respond mode.' : 'Question text is visible.'}</span>` : ''}
+        ${canSpeak ? `
+            <div class="quiz-voice-controls">
+                <label class="compact-field">
+                    <span>Voice</span>
+                    <select id="liveVoiceSelect">${voiceSelectOptions()}</select>
+                </label>
+                <label class="compact-field voice-speed-field">
+                    <span>Speed <strong id="liveVoiceRateValue">${currentSpeechRate().toFixed(1)}x</strong></span>
+                    <input id="liveVoiceRateInput" type="range" min="0.6" max="1.4" step="0.1" value="${currentSpeechRate()}" />
+                </label>
+            </div>
+        ` : ''}
+    `;
+    populateVoiceSelect();
+}
+
+function renderTranslationControl(question) {
+    const languages = questionTranslationLanguages(question);
+    if (!languages.length) return '';
+    const selected = currentTranslationLanguage();
+    return `
+        <label class="compact-field translation-field">
+            <span>Translation</span>
+            <select id="translationSelect">
+                <option value="">Original</option>
+                ${languages.map(language => `<option value="${esc(language)}" ${selected === language ? 'selected' : ''}>${esc(language)}</option>`).join('')}
+            </select>
+        </label>
+    `;
+}
+
+function speakCurrentQuestion() {
+    if (!quiz || !('speechSynthesis' in window)) return;
+    const question = quiz.questions[currentIndex];
+    const text = stripHtml(questionDisplayPrompt(question) || '').trim();
+    if (!text) return toast('No question text to read.');
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voiceId = currentSpeechVoice();
+    const voice = speechVoices.find(item => speechVoiceId(item) === voiceId);
+    if (voice) utterance.voice = voice;
+    utterance.rate = currentSpeechRate();
+    window.speechSynthesis.speak(utterance);
+}
+
+function revealCurrentQuestionText() {
+    if (!quiz) return;
+    quiz.promptRevealed[currentIndex] = true;
+    renderQuiz();
+}
+
+function speechVoiceId(voice) {
+    return `${voice.name}__${voice.lang}`;
+}
+
+function toggleFibChoice(value) {
+    const inputs = Array.from(document.querySelectorAll('.fib-input'));
+    const selected = inputs.find(input => input.value === value);
+    if (selected) {
+        selected.value = '';
+        refreshFibChoiceButtons();
+        return;
+    }
+    const empty = inputs.find(input => !input.value.trim());
+    if (!empty) {
+        toast('All blanks are filled. Undo one answer to change it.');
+        return;
+    }
+    empty.value = value;
+    refreshFibChoiceButtons();
+}
+
+function clearFibChoice(index) {
+    const input = document.querySelector(`.fib-input[data-fib="${index}"]`);
+    if (!input) return;
+    input.value = '';
+    refreshFibChoiceButtons();
+}
+
+function refreshFibChoiceButtons() {
+    const selectedCounts = countValues(Array.from(document.querySelectorAll('.fib-input')).map(input => input.value).filter(Boolean));
+    document.querySelectorAll('[data-fib-choice]').forEach(button => {
+        const value = button.dataset.fibChoice;
+        const selected = (selectedCounts.get(value) || 0) > 0;
+        button.classList.toggle('selected', selected);
+        if (selected) selectedCounts.set(value, selectedCounts.get(value) - 1);
+    });
+    document.querySelectorAll('[data-fib-clear]').forEach(button => {
+        const input = document.querySelector(`.fib-input[data-fib="${button.dataset.fibClear}"]`);
+        button.disabled = !input?.value;
+    });
+}
+
+function toggleShortAnswerChoice(optionIndex) {
+    const question = quiz.questions[currentIndex];
+    const answer = quiz.answers[currentIndex];
+    if (!currentShortAnswerWordOptions(question)?.[optionIndex]) return;
+    answer.shortAnswerChoiceIndices = answer.shortAnswerChoiceIndices || [];
+    const selectedIndex = answer.shortAnswerChoiceIndices.indexOf(optionIndex);
+    if (selectedIndex >= 0) {
+        answer.shortAnswerChoiceIndices.splice(selectedIndex, 1);
+        answer.shortAnswerInsertIndex = clampShortAnswerInsertIndex(answer.shortAnswerInsertIndex, answer);
+    } else {
+        const insertIndex = clampShortAnswerInsertIndex(answer.shortAnswerInsertIndex, answer);
+        answer.shortAnswerChoiceIndices.splice(insertIndex, 0, optionIndex);
+        answer.shortAnswerInsertIndex = insertIndex + 1;
+    }
+    updateShortAnswerFromChoices(question, answer);
+    renderQuiz();
+}
+
+function removeShortAnswerChoice(selectedIndex) {
+    const question = quiz.questions[currentIndex];
+    const answer = quiz.answers[currentIndex];
+    if (!answer?.shortAnswerChoiceIndices || selectedIndex < 0) return;
+    answer.shortAnswerChoiceIndices.splice(selectedIndex, 1);
+    if ((answer.shortAnswerInsertIndex || 0) > selectedIndex) {
+        answer.shortAnswerInsertIndex -= 1;
+    }
+    answer.shortAnswerInsertIndex = clampShortAnswerInsertIndex(answer.shortAnswerInsertIndex, answer);
+    updateShortAnswerFromChoices(question, answer);
+    renderQuiz();
+}
+
+function setShortAnswerInsertIndex(insertIndex) {
+    const answer = quiz.answers[currentIndex];
+    answer.shortAnswerInsertIndex = clampShortAnswerInsertIndex(insertIndex, answer);
+    renderQuiz();
+}
+
+function setShortAnswerMode(mode) {
+    const question = quiz.questions[currentIndex];
+    const answer = quiz.answers[currentIndex];
+    if (mode !== 'word_bank' && mode !== 'typing') return;
+    saveCurrentAnswer();
+    answer.shortAnswerMode = mode;
+    if (mode === 'word_bank') {
+        updateShortAnswerFromChoices(question, answer);
+    }
+    renderQuiz();
+}
+
+function clampShortAnswerInsertIndex(insertIndex, answer) {
+    const max = answer?.shortAnswerChoiceIndices?.length || 0;
+    return Math.max(0, Math.min(Number.isFinite(insertIndex) ? insertIndex : max, max));
+}
+
+function updateShortAnswerFromChoices(question, answer) {
+    answer.shortAnswer = (answer.shortAnswerChoiceIndices || [])
+        .map(index => currentShortAnswerWordOptions(question)?.[index])
+        .filter(Boolean)
+        .join(' ');
+}
+
+function setQuestionTranslation(language) {
+    if (!quiz) return;
+    saveCurrentAnswer();
+    quiz.translationChoices[currentIndex] = language || '';
+    const question = quiz.questions[currentIndex];
+    const answer = quiz.answers[currentIndex];
+    answer.translationLanguage = language || '';
+    if (question.type === 'short_answer') {
+        answer.shortAnswerChoiceIndices = [];
+        answer.shortAnswerInsertIndex = 0;
+        if ((answer.shortAnswerMode || 'word_bank') === 'word_bank') {
+            answer.shortAnswer = '';
+        }
+    }
+    renderQuiz();
 }
 
 function renderSelectionMemory() {
@@ -1441,10 +1868,11 @@ function nextQuestionButtonLabel() {
 
 function answerInputHtml(question, answer) {
     if (question.type === 'mcq') {
+        const translatedOptions = questionDisplayOptions(question);
         return (question.options || []).map((option, index) => `
             <label class="option-card">
                 <input type="checkbox" class="mcq-answer" value="${index}" ${answer.selectedOptions.includes(index) ? 'checked' : ''}>
-                <span><strong>${String.fromCharCode(65 + index)}.</strong> <span class="rich-content">${sanitizeRich(option.html || '')}</span></span>
+                <span><strong>${String.fromCharCode(65 + index)}.</strong> <span class="rich-content">${sanitizeRich(translatedOptions[index] || option.html || '')}</span></span>
             </label>
         `).join('');
     }
@@ -1455,12 +1883,72 @@ function answerInputHtml(question, answer) {
         `;
     }
     if (question.type === 'fib') {
+        if (quiz.fibChoiceBank && (question.fibBanks || []).length > 1 && question.fibChoiceOptions?.length) {
+            const selectedCounts = countValues((answer.fibAnswers || []).filter(Boolean));
+            return `
+                <div class="fib-choice-layout">
+                    <div class="fib-blank-list">
+                        ${(question.fibBanks || []).map((bank, index) => `
+                            <label class="field text-answer fib-choice-blank">
+                                <span>${esc(bank.label || `Blank ${index + 1}`)}</span>
+                                <div class="fib-choice-input-row">
+                                    <input class="fib-input" data-fib="${index}" value="${esc(answer.fibAnswers[index] || '')}" placeholder="Select an answer" readonly />
+                                    <button class="btn small-btn" type="button" data-fib-clear="${index}" ${answer.fibAnswers[index] ? '' : 'disabled'}>Undo</button>
+                                </div>
+                            </label>
+                        `).join('')}
+                    </div>
+                    <div class="fib-choice-bank" aria-label="Answer choices">
+                        ${question.fibChoiceOptions.map(option => {
+                            const selected = (selectedCounts.get(option) || 0) > 0;
+                            if (selected) selectedCounts.set(option, selectedCounts.get(option) - 1);
+                            return `<button class="fib-choice-chip ${selected ? 'selected' : ''}" type="button" data-fib-choice="${esc(option)}">${esc(option)}</button>`;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        }
         return (question.fibBanks || []).map((bank, index) => `
             <label class="field text-answer">
                 <span>${esc(bank.label || `Blank ${index + 1}`)}</span>
                 <input class="fib-input" data-fib="${index}" value="${esc(answer.fibAnswers[index] || '')}" placeholder="Your answer" />
             </label>
         `).join('');
+    }
+    if (quiz.shortAnswerWordBank && currentShortAnswerWordOptions(question)?.length) {
+        const mode = answer.shortAnswerMode || 'word_bank';
+        const selectedIndices = answer.shortAnswerChoiceIndices || [];
+        const wordOptions = currentShortAnswerWordOptions(question);
+        const expectedWords = shortAnswerWords(questionDisplayShortAnswer(question));
+        const selectedSet = new Set(selectedIndices);
+        const insertIndex = clampShortAnswerInsertIndex(answer.shortAnswerInsertIndex, answer);
+        const modeToggle = renderShortAnswerModeToggle(mode);
+        if (mode === 'typing') {
+            return `
+                <div class="short-word-layout">
+                    ${modeToggle}
+                    <label class="field text-answer">
+                        <span>Short Answer</span>
+                        <textarea id="shortAnswerInput" rows="5" placeholder="Type your answer">${esc(answer.shortAnswer || '')}</textarea>
+                    </label>
+                </div>
+            `;
+        }
+        return `
+            <div class="short-word-layout">
+                ${modeToggle}
+                <input id="shortAnswerInput" type="hidden" value="${esc(answer.shortAnswer || '')}" />
+                <div class="short-answer-line" aria-label="Selected answer words">
+                    ${selectedIndices.length ? renderShortAnswerSelectedWords(question, selectedIndices, expectedWords, insertIndex) : '<span class="short-answer-placeholder">Click words below to build your answer.</span>'}
+                </div>
+                ${selectedIndices.length ? '<div class="meta-line">Tap a gap to choose where the next word is inserted. Tap a selected word to remove it.</div>' : ''}
+                <div class="short-word-bank" aria-label="Short answer word choices">
+                    ${wordOptions.map((word, optionIndex) => `
+                        <button class="short-word-chip ${selectedSet.has(optionIndex) ? 'selected' : ''}" type="button" data-short-choice-index="${optionIndex}">${esc(word)}</button>
+                    `).join('')}
+                </div>
+            </div>
+        `;
     }
     return `
         <label class="field text-answer">
@@ -1470,11 +1958,39 @@ function answerInputHtml(question, answer) {
     `;
 }
 
+function renderShortAnswerSelectedWords(question, selectedIndices, expectedWords, insertIndex) {
+    const parts = [];
+    const wordOptions = currentShortAnswerWordOptions(question);
+    for (let gapIndex = 0; gapIndex <= selectedIndices.length; gapIndex += 1) {
+        parts.push(`
+            <button class="short-insert-gap ${insertIndex === gapIndex ? 'active' : ''}" type="button" data-short-insert-index="${gapIndex}" aria-label="Insert next word here">
+                +
+            </button>
+        `);
+        if (gapIndex >= selectedIndices.length) continue;
+        const optionIndex = selectedIndices[gapIndex];
+        const word = wordOptions[optionIndex] || '';
+        const status = normalizeWord(word) === normalizeWord(expectedWords[gapIndex] || '') ? 'correct' : 'wrong';
+        parts.push(`<button class="short-selected-word ${status}" type="button" data-short-selected-index="${gapIndex}" title="Click to remove">${esc(word)}</button>`);
+    }
+    return parts.join('');
+}
+
+function renderShortAnswerModeToggle(mode) {
+    return `
+        <div class="short-mode-toggle" aria-label="Short answer input mode">
+            <button class="btn small-btn ${mode === 'word_bank' ? 'active' : ''}" type="button" data-short-answer-mode="word_bank">Word bank</button>
+            <button class="btn small-btn ${mode === 'typing' ? 'active' : ''}" type="button" data-short-answer-mode="typing">Type answer</button>
+        </div>
+    `;
+}
+
 function saveCurrentAnswer() {
     if (!quiz) return;
     if (quiz.instantFeedback && quiz.feedbackShown[currentIndex]) return;
     const question = quiz.questions[currentIndex];
     const answer = quiz.answers[currentIndex];
+    answer.translationLanguage = quiz.translationChoices?.[currentIndex] || '';
     if (question.type === 'mcq') {
         answer.selectedOptions = Array.from(document.querySelectorAll('.mcq-answer:checked')).map(input => Number(input.value));
     } else if (question.type === 'true_false') {
@@ -1483,7 +1999,11 @@ function saveCurrentAnswer() {
     } else if (question.type === 'fib') {
         answer.fibAnswers = Array.from(document.querySelectorAll('.fib-input')).map(input => input.value.trim());
     } else {
-        answer.shortAnswer = $('shortAnswerInput')?.value.trim() || '';
+        if (quiz.shortAnswerWordBank && currentShortAnswerWordOptions(question)?.length && (answer.shortAnswerMode || 'word_bank') === 'word_bank') {
+            updateShortAnswerFromChoices(question, answer);
+        } else {
+            answer.shortAnswer = $('shortAnswerInput')?.value.trim() || '';
+        }
     }
 }
 
@@ -1596,6 +2116,7 @@ function submissionDocId() {
 }
 
 function gradeAnswer(question, answer) {
+    const translationLanguage = answer.translationLanguage || '';
     const base = {
         questionId: question.id,
         type: question.type,
@@ -1610,10 +2131,11 @@ function gradeAnswer(question, answer) {
         difficulty: question.difficulty || '',
         explanationUrl: validExplanationUrl(question.explanationUrl),
         explanation: question.explanation || '',
-        promptHtml: question.promptHtml,
+        promptHtml: questionPromptText(question, translationLanguage),
         displayAnswer: '',
         isCorrect: null,
-        correctAnswer: correctAnswerText(question),
+        correctAnswer: correctAnswerText(question, translationLanguage),
+        translationLanguage,
         selectedOptions: answer.selectedOptions || [],
         fibAnswers: answer.fibAnswers || [],
         trueFalseAnswer: answer.trueFalseAnswer,
@@ -1635,7 +2157,7 @@ function gradeAnswer(question, answer) {
         });
     } else {
         base.displayAnswer = answer.shortAnswer || 'Not answered';
-        base.aiReview = assessShortAnswerOffline(question, answer.shortAnswer || '');
+        base.aiReview = assessShortAnswerOffline(question, answer.shortAnswer || '', null, translationLanguage);
         base.isCorrect = base.aiReview.maxMarks > 0 ? base.aiReview.marks >= base.aiReview.maxMarks * 0.9 : null;
     }
     return base;
@@ -1644,8 +2166,9 @@ function gradeAnswer(question, answer) {
 async function gradeAnswerWithOfflineAi(question, answer) {
     const graded = gradeAnswer(question, answer);
     if (question.type !== 'short_answer' || !answer.shortAnswer || !offlineAi.embedPipe) return graded;
-    const semanticScore = await offlineSemanticScore(correctAnswerText(question), answer.shortAnswer);
-    graded.aiReview = assessShortAnswerOffline(question, answer.shortAnswer || '', semanticScore);
+    const translationLanguage = answer.translationLanguage || '';
+    const semanticScore = await offlineSemanticScore(correctAnswerText(question, translationLanguage), answer.shortAnswer);
+    graded.aiReview = assessShortAnswerOffline(question, answer.shortAnswer || '', semanticScore, translationLanguage);
     graded.isCorrect = graded.aiReview.maxMarks > 0 ? graded.aiReview.marks >= graded.aiReview.maxMarks * 0.9 : null;
     return graded;
 }
@@ -1663,20 +2186,21 @@ async function offlineSemanticScore(expectedAnswer, studentAnswer) {
     }
 }
 
-function correctAnswerText(question) {
+function correctAnswerText(question, language = '') {
     if (question.type === 'mcq') {
-        return (question.options || []).map((opt, i) => opt.correct ? `Option ${String.fromCharCode(65 + i)}: ${stripHtml(opt.html)}` : '').filter(Boolean).join('; ');
+        const optionTexts = questionOptionTexts(question, language);
+        return (question.options || []).map((opt, i) => opt.correct ? `Option ${String.fromCharCode(65 + i)}: ${stripHtml(optionTexts[i] || opt.html)}` : '').filter(Boolean).join('; ');
     }
     if (question.type === 'true_false') return String(question.trueAnswer);
     if (question.type === 'fib') {
         return (question.fibBanks || []).map(bank => `${bank.label}: ${(bank.answers || []).join(' / ')}`).join('; ');
     }
-    return stripHtml(question.shortAnswerHtml || '');
+    return stripHtml(questionShortAnswerText(question, language) || '');
 }
 
-function assessShortAnswerOffline(question, studentAnswer, semanticScore = null) {
+function assessShortAnswerOffline(question, studentAnswer, semanticScore = null, language = '') {
     const startedAt = performance.now();
-    const expectedAnswer = stripHtml(question.shortAnswerHtml || '');
+    const expectedAnswer = stripHtml(questionShortAnswerText(question, language) || '');
     const student = String(studentAnswer || '').trim();
     const maxMarks = expectedAnswer.trim() ? 10 : 0;
     if (!maxMarks) {
@@ -2068,8 +2592,13 @@ function resetApp() {
     document.querySelectorAll('.question-type-filter').forEach(input => {
         input.checked = true;
     });
-    $('explanationOnlyFilter').checked = true;
+    $('explanationOnlyFilter').checked = false;
+    $('translationOnlyFilter').checked = false;
     $('instantFeedbackFilter').checked = true;
+    $('speakerButtonFilter').checked = true;
+    $('listenRespondFilter').checked = false;
+    $('fibChoiceBankFilter').checked = true;
+    $('shortAnswerWordBankFilter').checked = true;
     $('loadQuestionsBtn').hidden = false;
     $('loadQuestionsBtn').disabled = false;
     els.startQuizBtn.disabled = true;
@@ -2156,12 +2685,30 @@ function normalizeText(value) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+function normalizeWord(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function shortAnswerWords(value) {
+    return stripHtml(value || '')
+        .match(/[\p{L}\p{N}'-]+/gu)
+        ?.map(word => word.trim())
+        .filter(Boolean) || [];
+}
+
 function contains(value, needle) {
     return String(value || '').toLowerCase().includes(String(needle || '').toLowerCase());
 }
 
 function unique(values) {
     return Array.from(new Set(values));
+}
+
+function countValues(values) {
+    return values.reduce((counts, value) => {
+        counts.set(value, (counts.get(value) || 0) + 1);
+        return counts;
+    }, new Map());
 }
 
 function shuffle(items) {
