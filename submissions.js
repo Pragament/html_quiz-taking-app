@@ -519,7 +519,7 @@ function renderMistakeList(mistakes) {
                     <div class="rich-content">${sanitizeRich(row.answer.promptHtml)}</div>
                     <div><strong>Your answer:</strong> ${esc(row.answer.displayAnswer || 'Not answered')}</div>
                     <div><strong>Correct answer:</strong> ${esc(row.answer.correctAnswer || 'Teacher review')}</div>
-                    ${renderAiReview(row.answer.aiReview)}
+                    ${renderAiReview(row.answer)}
                 </article>
             `).join('')}
         </div>
@@ -596,12 +596,13 @@ function renderSubmissionAnswers(answers) {
             <div class="rich-content">${sanitizeRich(answer.promptHtml)}</div>
             <div><strong>Your answer:</strong> ${esc(answer.displayAnswer || 'Not answered')}</div>
             <div><strong>Correct answer:</strong> ${esc(answer.correctAnswer || 'Teacher review')}</div>
-            ${renderAiReview(answer.aiReview)}
+            ${renderAiReview(answer)}
         </article>
     `).join('');
 }
 
-function renderAiReview(aiReview) {
+function renderAiReview(answer) {
+    const aiReview = answer?.aiReview;
     if (!aiReview) return '';
     const marks = aiReview.marks ?? null;
     const maxMarks = aiReview.maxMarks ?? null;
@@ -617,8 +618,90 @@ function renderAiReview(aiReview) {
                 ${score ? `<span class="step-chip">${esc(score)} marks</span>` : ''}
             </div>
             ${aiReview.reason ? `<div>${esc(aiReview.reason)}</div>` : ''}
+            ${renderDetailedAiReview(aiReview, answer.shortAnswer || answer.displayAnswer || '')}
         </div>
     `;
+}
+
+function renderDetailedAiReview(aiReview, studentAnswer) {
+    if (!aiReview.agents?.length) return '';
+    const final = aiReview.final || {};
+    const scorePercent = Math.round(Number(final.score || 0) * 100);
+    const keyIdeas = [
+        ...(aiReview.matchedTerms || []).map(term => ({ term, hit: true })),
+        ...(aiReview.missingTerms || []).map(term => ({ term, hit: false }))
+    ];
+    return `
+        <section class="ai-assessment-detail">
+            <div class="ai-scorecard">
+                <div class="ai-bigscore">${esc(formatPoints(aiReview.marks))}<small>/${esc(formatPoints(aiReview.maxMarks))}</small></div>
+                <div class="ai-scoremeta">
+                    <span class="ai-band ${esc(final.bandClass || 'manual')}">${esc(final.bandLabel || 'Review')}</span>
+                    <div class="ai-scorebar"><i style="width: ${scorePercent}%"></i></div>
+                    <p>${esc(final.verdict || aiReview.reason || '')}</p>
+                </div>
+            </div>
+            <div class="ai-agent-list">
+                ${aiReview.agents.map(renderAiAgentCard).join('')}
+            </div>
+            <div class="ai-annotation-block">
+                <strong>Student answer - annotated by AI</strong>
+                <div class="ai-annotated-answer">${annotateStudentAnswer(studentAnswer, aiReview.spellingIssues || [], aiReview.grammarIssues || [])}</div>
+                <div class="ai-legend">
+                    <span><i class="spell"></i>spelling</span>
+                    <span><i class="grammar"></i>grammar</span>
+                    <span>Hover a mark for the AI suggestion.</span>
+                </div>
+            </div>
+            <div class="ai-key-ideas">
+                <strong>Key ideas vs expected answer</strong>
+                <div class="ai-key-chip-list">
+                    ${keyIdeas.length ? keyIdeas.map(item => `<span class="ai-key-chip ${item.hit ? 'hit' : 'miss'}">${item.hit ? 'yes' : 'no'} ${esc(item.term)}</span>`).join('') : '<span class="ai-key-chip">No key terms extracted.</span>'}
+                </div>
+            </div>
+            <p class="ai-assessment-foot">Assessed in <strong>${esc(formatPoints(aiReview.assessedMs || 0))} ms</strong> - ${esc(aiReview.agentCount || 5)} AI agents - 0 network calls after model download - ran entirely on this device.</p>
+        </section>
+    `;
+}
+
+function renderAiAgentCard(agent) {
+    const percent = Math.round(Number(agent.score || 0) * 100);
+    return `
+        <article class="ai-agent-card">
+            <div class="ai-agent-head">
+                <strong>${esc(agent.name)}</strong>
+                <span class="step-chip">${esc(formatPoints(agent.points))} / ${esc(formatPoints(agent.max))}</span>
+            </div>
+            <div class="ai-agent-meter"><i style="width: ${percent}%"></i></div>
+            <p>${esc(agent.summary || '')}</p>
+            ${(agent.findings || []).length ? `<ul>${agent.findings.map(finding => `<li>${esc(finding)}</li>`).join('')}</ul>` : ''}
+        </article>
+    `;
+}
+
+function annotateStudentAnswer(answer, spellingIssues, grammarIssues) {
+    const text = String(answer || '');
+    const marks = [
+        ...spellingIssues.map(issue => ({ ...issue, className: 'm-spell' })),
+        ...grammarIssues.map(issue => ({ ...issue, className: 'm-grammar' }))
+    ]
+        .filter(issue => Number.isFinite(issue.start) && Number.isFinite(issue.end) && issue.end > issue.start)
+        .sort((a, b) => a.start - b.start || b.end - a.end);
+    let html = '';
+    let cursor = 0;
+    marks.forEach(mark => {
+        if (mark.start < cursor) return;
+        html += esc(text.slice(cursor, mark.start));
+        html += `<mark class="${mark.className}" title="${esc(mark.message || '')}">${esc(text.slice(mark.start, mark.end))}</mark>`;
+        cursor = mark.end;
+    });
+    html += esc(text.slice(cursor));
+    return html || '<em>No answer submitted.</em>';
+}
+
+function formatPoints(value) {
+    const number = Number(value || 0);
+    return Number.isInteger(number) ? String(number) : number.toFixed(1).replace(/\.0$/, '');
 }
 
 function setReviewFilter(review, filter) {

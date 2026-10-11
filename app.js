@@ -57,13 +57,17 @@ const offlineAi = {
     status: 'idle',
     embedPipe: null,
     grammarPipe: null,
-    loadPromise: null
+    loadPromise: null,
+    models: {
+        embed: { label: 'Similarity model', status: 'waiting', progress: 0, loaded: 0, total: 0, file: '', error: '' },
+        grammar: { label: 'Writing model', status: 'waiting', progress: 0, loaded: 0, total: 0, file: '', error: '' }
+    }
 };
 
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
-const APP_VERSION = '2026.10.11.3';
+const APP_VERSION = '2026.10.11.4';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 const TOUR_STEPS = [
     {
@@ -90,6 +94,7 @@ const $ = (id) => document.getElementById(id);
 const els = {
     statusText: $('statusText'),
     offlineAiStatus: $('offlineAiStatus'),
+    offlineAiDetails: $('offlineAiDetails'),
     resetBtn: $('resetBtn'),
     tourBtn: $('tourBtn'),
     viewSubmissionsBtn: $('viewSubmissionsBtn'),
@@ -140,6 +145,7 @@ function bindEvents() {
     $('loadQuestionsBtn').addEventListener('click', loadPublishedQuestions);
     $('startQuizBtn').addEventListener('click', startQuiz);
     $('nextQuestionBtn').addEventListener('click', advanceQuestion);
+    els.offlineAiStatus.addEventListener('click', toggleOfflineAiDetails);
     $('phoneInput').addEventListener('input', sanitizePhonePrefixInput);
     els.resetBtn.addEventListener('click', resetApp);
     els.tourBtn.addEventListener('click', () => startGuidedTour());
@@ -151,6 +157,18 @@ function bindEvents() {
             tourOptOutSelected = event.target.checked;
         }
     });
+    document.addEventListener('click', event => {
+        if (event.target.closest('[data-offline-ai-retry]')) {
+            retryOfflineAiModels();
+            return;
+        }
+        if (els.offlineAiDetails.hidden) return;
+        if (els.offlineAiStatus.contains(event.target) || els.offlineAiDetails.contains(event.target)) return;
+        setOfflineAiDetailsOpen(false);
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') setOfflineAiDetailsOpen(false);
+    });
     $('classFilter').addEventListener('change', handleClassFilterChange);
     $('subjectFilter').addEventListener('change', handleSubjectFilterChange);
     $('chapterFilter').addEventListener('change', resetLoadedQuestionSelection);
@@ -158,31 +176,155 @@ function bindEvents() {
         $(id).addEventListener('input', resetLoadedQuestionSelection);
         $(id).addEventListener('change', resetLoadedQuestionSelection);
     });
+    document.querySelectorAll('.question-type-filter').forEach(input => {
+        input.addEventListener('change', resetLoadedQuestionSelection);
+    });
 }
 
 function preloadOfflineAiModels() {
     if (offlineAi.loadPromise) return offlineAi.loadPromise;
     offlineAi.status = 'loading';
+    Object.values(offlineAi.models).forEach(model => {
+        model.status = 'waiting';
+        model.progress = 0;
+        model.loaded = 0;
+        model.total = 0;
+        model.file = '';
+        model.error = '';
+    });
     renderOfflineAiStatus();
     offlineAi.loadPromise = import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0/dist/transformers.min.js')
         .then(async ({ pipeline, env }) => {
             env.allowLocalModels = false;
             env.useBrowserCache = true;
             const [embedResult, grammarResult] = await Promise.allSettled([
-                pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' }),
-                pipeline('text2text-generation', 'Xenova/flan-t5-small', { dtype: 'q8' })
+                loadOfflineAiPipeline(pipeline, 'embed', 'feature-extraction', 'Xenova/all-MiniLM-L6-v2'),
+                loadOfflineAiPipeline(pipeline, 'grammar', 'text2text-generation', 'Xenova/flan-t5-small')
             ]);
-            if (embedResult.status === 'fulfilled') offlineAi.embedPipe = embedResult.value;
-            if (grammarResult.status === 'fulfilled') offlineAi.grammarPipe = grammarResult.value;
+            if (embedResult.status === 'fulfilled') {
+                offlineAi.embedPipe = embedResult.value;
+                markOfflineAiModelReady('embed');
+            } else {
+                markOfflineAiModelFallback('embed', embedResult.reason);
+            }
+            if (grammarResult.status === 'fulfilled') {
+                offlineAi.grammarPipe = grammarResult.value;
+                markOfflineAiModelReady('grammar');
+            } else {
+                markOfflineAiModelFallback('grammar', grammarResult.reason);
+            }
             offlineAi.status = offlineAi.embedPipe ? 'ready' : 'fallback';
             renderOfflineAiStatus();
         })
         .catch(error => {
             console.warn('Offline AI model preload failed:', error);
             offlineAi.status = 'fallback';
+            markOfflineAiModelFallback('embed', error);
+            markOfflineAiModelFallback('grammar', error);
             renderOfflineAiStatus();
         });
     return offlineAi.loadPromise;
+}
+
+function retryOfflineAiModels() {
+    offlineAi.loadPromise = null;
+    offlineAi.embedPipe = null;
+    offlineAi.grammarPipe = null;
+    preloadOfflineAiModels();
+}
+
+async function loadOfflineAiPipeline(pipeline, key, task, modelId) {
+    const attempts = [
+        { label: 'quantized', options: { dtype: 'q8' } },
+        { label: 'standard', options: {} }
+    ];
+    let lastError = null;
+    for (const attempt of attempts) {
+        try {
+            markOfflineAiModelPreparing(key, attempt.label);
+            return await pipeline(task, modelId, {
+                ...attempt.options,
+                progress_callback: progress => updateOfflineAiProgress(key, progress)
+            });
+        } catch (error) {
+            lastError = error;
+            console.warn(`Offline AI ${key} ${attempt.label} load failed:`, error);
+            if (attempt !== attempts[attempts.length - 1]) {
+                markOfflineAiModelRetrying(key, attempt.label, error);
+            }
+        }
+    }
+    throw lastError;
+}
+
+function updateOfflineAiProgress(key, event = {}) {
+    const model = offlineAi.models[key];
+    if (!model) return;
+    const status = String(event.status || '').toLowerCase();
+    const progress = Number(event.progress);
+    const loaded = Number(event.loaded);
+    const total = Number(event.total);
+    model.file = event.file || event.name || model.file || '';
+    model.error = '';
+    if (Number.isFinite(loaded)) model.loaded = Math.max(model.loaded || 0, loaded);
+    if (Number.isFinite(total) && total > 0) model.total = Math.max(model.total || 0, total);
+    if (Number.isFinite(progress)) {
+        model.progress = Math.max(model.progress, Math.max(0, Math.min(progress, 100)));
+    } else if (Number.isFinite(loaded) && Number.isFinite(total) && total > 0) {
+        model.progress = Math.max(model.progress, Math.round((loaded / total) * 100));
+    } else if (status.includes('ready') || status.includes('done')) {
+        model.progress = 100;
+    } else if (status.includes('download') || status.includes('progress')) {
+        model.progress = Math.max(model.progress, 5);
+    }
+    if (status.includes('ready') || status.includes('done')) {
+        model.status = 'ready';
+    } else if (status.includes('download') || status.includes('progress')) {
+        model.status = 'downloading';
+    } else if (status.includes('init') || status.includes('load')) {
+        model.status = 'preparing';
+    } else if (model.status === 'waiting') {
+        model.status = 'preparing';
+    }
+    renderOfflineAiStatus();
+}
+
+function markOfflineAiModelPreparing(key, attempt) {
+    const model = offlineAi.models[key];
+    if (!model) return;
+    model.status = 'preparing';
+    model.error = '';
+    model.file = attempt ? `${attempt} model` : model.file;
+    renderOfflineAiStatus();
+}
+
+function markOfflineAiModelRetrying(key, attempt, error) {
+    const model = offlineAi.models[key];
+    if (!model) return;
+    model.status = 'retrying';
+    model.error = `Retrying after ${attempt} load failed: ${offlineAiErrorMessage(error)}`;
+    renderOfflineAiStatus();
+}
+
+function markOfflineAiModelReady(key) {
+    const model = offlineAi.models[key];
+    if (!model) return;
+    model.status = 'ready';
+    model.progress = 100;
+    renderOfflineAiStatus();
+}
+
+function markOfflineAiModelFallback(key, error) {
+    const model = offlineAi.models[key];
+    if (!model || model.status === 'ready') return;
+    model.status = 'basic';
+    model.error = offlineAiErrorMessage(error);
+    renderOfflineAiStatus();
+}
+
+function offlineAiErrorMessage(error) {
+    if (!error) return '';
+    return String(error.message || error.name || error).slice(0, 180);
 }
 
 function renderOfflineAiStatus() {
@@ -194,8 +336,96 @@ function renderOfflineAiStatus() {
     } else if (offlineAi.status === 'fallback') {
         els.offlineAiStatus.textContent = 'Offline AI basic';
     } else {
-        els.offlineAiStatus.textContent = 'Offline AI loading';
+        const progress = offlineAiAggregateProgress();
+        els.offlineAiStatus.textContent = progress > 0 ? `Offline AI loading ${progress}%` : 'Offline AI loading';
     }
+    renderOfflineAiDetails();
+}
+
+function offlineAiAggregateProgress() {
+    const models = Object.values(offlineAi.models);
+    if (!models.length) return 0;
+    return Math.round(models.reduce((total, model) => total + Number(model.progress || 0), 0) / models.length);
+}
+
+function toggleOfflineAiDetails() {
+    setOfflineAiDetailsOpen(els.offlineAiStatus.getAttribute('aria-expanded') !== 'true');
+}
+
+function setOfflineAiDetailsOpen(open) {
+    els.offlineAiStatus.setAttribute('aria-expanded', String(open));
+    els.offlineAiDetails.hidden = !open;
+    if (open) renderOfflineAiDetails();
+}
+
+function renderOfflineAiDetails() {
+    if (!els.offlineAiDetails) return;
+    const details = offlineAiDetailsCopy();
+    els.offlineAiDetails.innerHTML = `
+        <strong>${esc(details.title)}</strong>
+        <p>${esc(details.body)}</p>
+        <div class="ai-progress-list">${renderOfflineAiProgressRows()}</div>
+        <p>${esc(details.note)}</p>
+        ${offlineAi.status === 'fallback' ? '<button class="btn small-btn ai-retry-btn" type="button" data-offline-ai-retry>Retry download</button>' : ''}
+    `;
+}
+
+function renderOfflineAiProgressRows() {
+    return Object.entries(offlineAi.models).map(([key, model]) => {
+        const progress = Math.round(model.progress || 0);
+        const label = offlineAiModelStatusLabel(model);
+        return `
+            <div class="ai-progress-row">
+                <div class="ai-progress-head">
+                    <span>${esc(model.label)}</span>
+                    <span>${esc(label)}</span>
+                </div>
+                <div class="ai-progress-bar" aria-label="${esc(model.label)} progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}" role="progressbar">
+                    <i style="width: ${progress}%"></i>
+                </div>
+                ${model.file ? `<div class="ai-progress-file">${esc(model.file)}${model.loaded && model.total ? ` - ${formatBytes(model.loaded)} / ${formatBytes(model.total)}` : ''}</div>` : ''}
+                ${model.error ? `<div class="ai-progress-error">${esc(model.error)}</div>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function offlineAiModelStatusLabel(model) {
+    if (model.status === 'ready') return 'Ready';
+    if (model.status === 'basic') return 'Basic fallback';
+    if (model.status === 'downloading') return `${Math.round(model.progress || 0)}%`;
+    if (model.status === 'retrying') return 'Retrying';
+    if (model.status === 'preparing') return 'Preparing';
+    return 'Waiting';
+}
+
+function formatBytes(value) {
+    const bytes = Number(value || 0);
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${bytes} B`;
+}
+
+function offlineAiDetailsCopy() {
+    if (offlineAi.status === 'ready') {
+        return {
+            title: 'Offline AI ready',
+            body: 'Short-answer feedback uses browser-cached AI embeddings plus local checks for key ideas, important values, and answer completeness.',
+            note: 'Student answers are assessed in this browser. The model files are reused from browser cache after the first download.'
+        };
+    }
+    if (offlineAi.status === 'fallback') {
+        return {
+            title: 'Offline AI basic',
+            body: 'The full offline model is not available yet, so short-answer feedback uses local scoring based on expected-answer terms, math values, and answer length.',
+            note: 'Keep this page open with internet access to let the model download in the background. Feedback still works while it downloads.'
+        };
+    }
+    return {
+        title: 'Offline AI loading',
+        body: 'The app is downloading browser-cached AI models in the background. Quiz login and question loading can continue meanwhile.',
+        note: 'Until the model is ready, short-answer feedback uses the basic local scorer.'
+    };
 }
 
 function maybePromptGuidedTour() {
@@ -578,6 +808,7 @@ function getQuizFilters() {
         className: taxonomyLabel(classId),
         subject: taxonomyLabel(subjectId),
         chapter: taxonomyLabel(chapterId),
+        questionTypes: selectedQuestionTypes(),
         difficulty: $('difficultyFilter').value.trim(),
         explanationOnly: $('explanationOnlyFilter').checked,
         instantFeedback: $('instantFeedbackFilter').checked
@@ -588,9 +819,14 @@ function matchesQuizFilters(question, filters) {
     if (filters.classId && question.classId !== filters.classId) return false;
     if (filters.subjectId && question.subjectId !== filters.subjectId) return false;
     if (filters.chapterId && question.chapterId !== filters.chapterId) return false;
+    if (filters.questionTypes.length && !filters.questionTypes.includes(question.type)) return false;
     if (filters.difficulty && question.difficulty !== filters.difficulty) return false;
     if (filters.explanationOnly && !validExplanationUrl(question.explanationUrl)) return false;
     return true;
+}
+
+function selectedQuestionTypes() {
+    return Array.from(document.querySelectorAll('.question-type-filter:checked')).map(input => input.value);
 }
 
 function taxonomyLabel(id) {
@@ -744,8 +980,86 @@ function renderInstantFeedbackPanel() {
             <div><strong>Correct answer:</strong> ${esc(feedback.correctAnswer || 'Teacher review')}</div>
         </div>
         ${feedback.aiReview?.reason ? `<div class="feedback-reasons"><strong>Reason for points:</strong> ${esc(feedback.aiReview.reason)}</div>` : ''}
+        ${feedback.aiReview ? renderDetailedAiReview(feedback.aiReview, feedback.shortAnswer || '') : ''}
         ${feedback.explanation ? `<div class="feedback-explanation"><strong>Explanation:</strong> ${esc(feedback.explanation)}</div>` : ''}
     `;
+}
+
+function renderDetailedAiReview(aiReview, studentAnswer) {
+    if (!aiReview?.agents?.length) return '';
+    const final = aiReview.final || {};
+    const scorePercent = Math.round((Number(final.score || 0)) * 100);
+    const keyIdeas = [
+        ...(aiReview.matchedTerms || []).map(term => ({ term, hit: true })),
+        ...(aiReview.missingTerms || []).map(term => ({ term, hit: false }))
+    ];
+    return `
+        <section class="ai-assessment-detail">
+            <div class="ai-scorecard">
+                <div class="ai-bigscore">${formatPoints(aiReview.marks)}<small>/${formatPoints(aiReview.maxMarks)}</small></div>
+                <div class="ai-scoremeta">
+                    <span class="ai-band ${esc(final.bandClass || 'manual')}">${esc(final.bandLabel || 'Review')}</span>
+                    <div class="ai-scorebar"><i style="width: ${scorePercent}%"></i></div>
+                    <p>${esc(final.verdict || aiReview.reason || '')}</p>
+                </div>
+            </div>
+            <div class="ai-agent-list">
+                ${aiReview.agents.map(renderAiAgentCard).join('')}
+            </div>
+            <div class="ai-annotation-block">
+                <strong>Student answer - annotated by AI</strong>
+                <div class="ai-annotated-answer">${annotateStudentAnswer(studentAnswer, aiReview.spellingIssues || [], aiReview.grammarIssues || [])}</div>
+                <div class="ai-legend">
+                    <span><i class="spell"></i>spelling</span>
+                    <span><i class="grammar"></i>grammar</span>
+                    <span>Hover a mark for the AI suggestion.</span>
+                </div>
+            </div>
+            <div class="ai-key-ideas">
+                <strong>Key ideas vs expected answer</strong>
+                <div class="ai-key-chip-list">
+                    ${keyIdeas.length ? keyIdeas.map(item => `<span class="ai-key-chip ${item.hit ? 'hit' : 'miss'}">${item.hit ? 'yes' : 'no'} ${esc(item.term)}</span>`).join('') : '<span class="ai-key-chip">No key terms extracted.</span>'}
+                </div>
+            </div>
+            <p class="ai-assessment-foot">Assessed in <strong>${formatPoints(aiReview.assessedMs || 0)} ms</strong> - ${esc(aiReview.agentCount || 5)} AI agents - 0 network calls after model download - ran entirely on this device.</p>
+        </section>
+    `;
+}
+
+function renderAiAgentCard(agent) {
+    const percent = Math.round(Number(agent.score || 0) * 100);
+    const points = Number(agent.points || 0);
+    const max = Number(agent.max || 0);
+    return `
+        <article class="ai-agent-card">
+            <div class="ai-agent-head">
+                <strong>${esc(agent.name)}</strong>
+                <span class="step-chip">${formatPoints(points)} / ${formatPoints(max)}</span>
+            </div>
+            <div class="ai-agent-meter"><i style="width: ${percent}%"></i></div>
+            <p>${esc(agent.summary || '')}</p>
+            ${(agent.findings || []).length ? `<ul>${agent.findings.map(finding => `<li>${esc(finding)}</li>`).join('')}</ul>` : ''}
+        </article>
+    `;
+}
+
+function annotateStudentAnswer(answer, spellingIssues, grammarIssues) {
+    const marks = [
+        ...spellingIssues.map(issue => ({ ...issue, className: 'm-spell' })),
+        ...grammarIssues.map(issue => ({ ...issue, className: 'm-grammar' }))
+    ]
+        .filter(issue => Number.isFinite(issue.start) && Number.isFinite(issue.end) && issue.end > issue.start)
+        .sort((a, b) => a.start - b.start || b.end - a.end);
+    let html = '';
+    let cursor = 0;
+    marks.forEach(mark => {
+        if (mark.start < cursor) return;
+        html += esc(String(answer || '').slice(cursor, mark.start));
+        html += `<mark class="${mark.className}" title="${esc(mark.message || '')}">${esc(String(answer || '').slice(mark.start, mark.end))}</mark>`;
+        cursor = mark.end;
+    });
+    html += esc(String(answer || '').slice(cursor));
+    return html || '<em>No answer submitted.</em>';
 }
 
 function feedbackPoints(feedback) {
@@ -1029,15 +1343,20 @@ function correctAnswerText(question) {
 }
 
 function assessShortAnswerOffline(question, studentAnswer, semanticScore = null) {
+    const startedAt = performance.now();
     const expectedAnswer = stripHtml(question.shortAnswerHtml || '');
     const student = String(studentAnswer || '').trim();
-    const maxMarks = expectedAnswer.trim() ? 1 : 0;
+    const maxMarks = expectedAnswer.trim() ? 10 : 0;
     if (!maxMarks) {
         return {
             marks: 0,
             maxMarks,
             reason: 'No expected answer is available for offline scoring, so this response needs teacher review.',
-            mode: 'offline_ai'
+            mode: 'offline_ai',
+            agents: [],
+            final: { score: 0, bandLabel: 'Teacher review', bandClass: 'manual', verdict: 'No expected answer is available for offline scoring.' },
+            agentCount: 5,
+            assessedMs: Math.round((performance.now() - startedAt) * 10) / 10
         };
     }
     if (!student) {
@@ -1045,7 +1364,11 @@ function assessShortAnswerOffline(question, studentAnswer, semanticScore = null)
             marks: 0,
             maxMarks,
             reason: 'No student answer was submitted.',
-            mode: 'offline_ai'
+            mode: 'offline_ai',
+            agents: [],
+            final: { score: 0, bandLabel: 'No answer', bandClass: 'wrong', verdict: 'No student answer was submitted.' },
+            agentCount: 5,
+            assessedMs: Math.round((performance.now() - startedAt) * 10) / 10
         };
     }
 
@@ -1059,20 +1382,40 @@ function assessShortAnswerOffline(question, studentAnswer, semanticScore = null)
     const studentNumbers = new Set(extractMathTokens(student));
     const matchedNumbers = expectedNumbers.filter(token => studentNumbers.has(token));
     const numberCoverage = expectedNumbers.length ? matchedNumbers.length / expectedNumbers.length : 1;
+    const expectedBigrams = bigrams(expectedTerms);
+    const studentBigrams = new Set(bigrams(contentTerms(student)));
+    const matchedBigrams = expectedBigrams.filter(phrase => studentBigrams.has(phrase));
+    const phraseCoverage = expectedBigrams.length ? matchedBigrams.length / expectedBigrams.length : 0;
 
     const expectedNormalized = normalizeAssessmentText(expectedAnswer);
     const studentNormalized = normalizeAssessmentText(student);
     const exactBonus = expectedNormalized && expectedNormalized === studentNormalized ? 0.2 : 0;
     const lengthRatio = expectedAnswer.length ? Math.min(student.length / expectedAnswer.length, 1) : 1;
     const lengthScore = Math.min(lengthRatio / 0.7, 1);
-    const hasMath = expectedNumbers.length > 0;
-    const heuristicScore = hasMath
-        ? numberCoverage * 0.55 + termCoverage * 0.35 + lengthScore * 0.1 + exactBonus
-        : termCoverage * 0.75 + lengthScore * 0.25 + exactBonus;
-    const rawScore = semanticScore === null
-        ? heuristicScore
-        : heuristicScore * 0.7 + Math.max(0, Math.min(semanticScore, 1)) * 0.3;
-    const marks = Math.round(Math.max(0, Math.min(rawScore, 1)) * maxMarks * 10) / 10;
+    const spellingIssues = spellingAssessmentIssues(student, expectedTerms);
+    const grammarIssues = grammarAssessmentIssues(student);
+    const spellingScore = Math.max(0, 1 - spellingIssues.length * 0.18);
+    const grammarScore = Math.max(0, 1 - grammarIssues.length * 0.11);
+    const matcherScore = Math.max(0, Math.min(termCoverage * 0.75 + phraseCoverage * 0.25, 1));
+    const semanticValue = semanticScore === null
+        ? Math.max(0, Math.min(termCoverage * 0.75 + lengthScore * 0.25 + exactBonus, 1))
+        : Math.max(0, Math.min(semanticScore, 1));
+    const semanticAlignment = semanticScore === null
+        ? Math.max(0, Math.min((termCoverage + phraseCoverage + lengthScore) / 3, 1))
+        : semanticValue;
+    const mathScore = expectedNumbers.length ? numberCoverage : 1;
+    const weighted = {
+        matcher: matcherScore * 3.5,
+        semantic: semanticValue * 3,
+        grammar: grammarScore * 2,
+        spelling: spellingScore * 1.5
+    };
+    const rawPoints = weighted.matcher + weighted.semantic + weighted.grammar + weighted.spelling;
+    const mathAdjustedPoints = expectedNumbers.length ? rawPoints * 0.7 + mathScore * 10 * 0.3 : rawPoints;
+    const marks = Math.round(Math.max(0, Math.min(mathAdjustedPoints, 10)) * 10) / 10;
+    const finalScore = maxMarks ? marks / maxMarks : 0;
+    const band = aiReviewBand(marks);
+    const closeness = Math.round((matcherScore * 0.6 + semanticValue * 0.4) * 100);
 
     const reasons = [
         `Matched ${matchedTerms.length}/${expectedTerms.length || 0} key idea${expectedTerms.length === 1 ? '' : 's'}${matchedTerms.length ? ` (${matchedTerms.slice(0, 6).join(', ')})` : ''}.`
@@ -1089,16 +1432,72 @@ function assessShortAnswerOffline(question, studentAnswer, semanticScore = null)
     if (lengthScore < 0.75) {
         reasons.push('Answer is much shorter than the expected answer.');
     }
+    const agents = [
+        {
+            key: 'matcher',
+            name: 'Agent 2 - Expected-answer matcher (Hybrid)',
+            score: matcherScore,
+            points: weighted.matcher,
+            max: 3.5,
+            summary: `Covers ${Math.round(termCoverage * 100)}% of expected key terms (${matchedTerms.length}/${expectedTerms.length}).`,
+            findings: [
+                missingTerms.length ? `Missing key ideas: ${missingTerms.slice(0, 8).join(', ')}${missingTerms.length > 8 ? '...' : ''}` : 'All expected key terms are present.',
+                `Phrase-level match: ${Math.round(phraseCoverage * 100)}%.`
+            ]
+        },
+        {
+            key: 'semantic',
+            name: 'Agent 3 - Semantic meaning (AI)',
+            score: semanticValue,
+            points: weighted.semantic,
+            max: 3,
+            summary: semanticSummary(semanticValue),
+            findings: [
+                `Concept overlap${semanticScore === null ? ' estimate' : ' (cosine)'}: ${Math.round(semanticValue * 100)}%.`,
+                `Idea-by-idea alignment: ${Math.round(semanticAlignment * 100)}%.`
+            ]
+        },
+        {
+            key: 'grammar',
+            name: 'Agent 4 - Sentence formation (AI)',
+            score: grammarScore,
+            points: weighted.grammar,
+            max: 2,
+            summary: grammarIssues.length ? `${grammarIssues.length} grammar issue(s) detected by AI.` : 'Sentences are well formed.',
+            findings: grammarIssues.length ? grammarIssues.map(issue => issue.message) : ['No grammar or sentence-formation problems detected.']
+        },
+        {
+            key: 'spelling',
+            name: 'Agent 1 - Spelling (AI)',
+            score: spellingScore,
+            points: weighted.spelling,
+            max: 1.5,
+            summary: `${spellingIssues.length} spelling issue(s) found.`,
+            findings: spellingIssues.length ? spellingIssues.map(issue => issue.message) : ['No spelling problems detected.']
+        }
+    ];
 
     return {
         marks,
         maxMarks,
         reason: reasons.join(' '),
         mode: 'offline_ai',
+        final: {
+            score: finalScore,
+            bandLabel: band.label,
+            bandClass: band.className,
+            closeness,
+            verdict: `AI-weighted assessment. Closeness to expected answer: ${closeness}%. Content is the strongest area; spelling and sentence formation affect the total.`
+        },
+        agents,
+        spellingIssues,
+        grammarIssues,
         matchedTerms: matchedTerms.slice(0, 12),
         missingTerms: missingTerms.slice(0, 12),
         matchedValues: matchedNumbers,
-        expectedValues: expectedNumbers
+        expectedValues: expectedNumbers,
+        agentCount: 5,
+        assessedMs: Math.round((performance.now() - startedAt) * 10) / 10
     };
 }
 
@@ -1107,6 +1506,131 @@ function contentTerms(value) {
     return tokens
         .map(token => token.replace(/s$/, ''))
         .filter(token => token.length > 2 && !SHORT_ANSWER_STOP_WORDS.has(token));
+}
+
+function bigrams(items) {
+    const output = [];
+    for (let index = 0; index < items.length - 1; index += 1) {
+        output.push(`${items[index]} ${items[index + 1]}`);
+    }
+    return output;
+}
+
+function aiReviewBand(points) {
+    if (points >= 9) return { label: 'Full credit', className: 'correct' };
+    if (points >= 7) return { label: 'Good - minor gaps', className: 'correct' };
+    if (points >= 5) return { label: 'Partial credit', className: 'manual' };
+    if (points >= 3) return { label: 'Weak - major gaps', className: 'manual' };
+    return { label: 'Little / no credit', className: 'wrong' };
+}
+
+function semanticSummary(score) {
+    if (score >= 0.75) return 'Meaning matches the expected answer closely.';
+    if (score >= 0.5) return 'Meaning is partly aligned - the main idea is there but detail is lost.';
+    if (score >= 0.25) return 'Only loose semantic overlap with the expected answer.';
+    return 'Meaning does not align well with the expected answer.';
+}
+
+function spellingAssessmentIssues(student, expectedTerms) {
+    const expected = new Set(expectedTerms);
+    const corrections = {
+        becaus: 'because',
+        brigde: 'bridge',
+        conect: 'connect',
+        supplys: 'supplies',
+        villager: 'villagers'
+    };
+    return findWordTokens(student)
+        .map(token => {
+            const normalized = normalizeAssessmentText(token.word).replace(/s$/, '');
+            const correction = corrections[normalized] || closestExpectedTerm(normalized, expected);
+            if (!correction || correction === normalized) return null;
+            return {
+                start: token.start,
+                end: token.end,
+                message: `"${token.word}" -> "${correction}"`
+            };
+        })
+        .filter(Boolean)
+        .slice(0, 8);
+}
+
+function closestExpectedTerm(word, expectedTerms) {
+    if (!word || word.length < 4 || expectedTerms.has(word)) return '';
+    let best = '';
+    let bestDistance = Infinity;
+    expectedTerms.forEach(term => {
+        if (Math.abs(term.length - word.length) > 2) return;
+        const distance = levenshteinDistance(word, term);
+        if (distance < bestDistance) {
+            best = term;
+            bestDistance = distance;
+        }
+    });
+    return bestDistance > 0 && bestDistance <= 2 ? best : '';
+}
+
+function grammarAssessmentIssues(student) {
+    const issues = [];
+    splitSentencesWithOffsets(student).forEach(sentence => {
+        const match = /[A-Za-z]/.exec(sentence.text);
+        if (match && match[0] === match[0].toLowerCase()) {
+            issues.push({
+                start: sentence.start + match.index,
+                end: sentence.start + match.index + 1,
+                message: 'Sentence should start with a capital letter.'
+            });
+        }
+    });
+    const trimmedEnd = String(student || '').replace(/\s+$/, '').length;
+    if (trimmedEnd > 0 && !/[.!?"')]/.test(student[trimmedEnd - 1])) {
+        issues.push({
+            start: trimmedEnd - 1,
+            end: trimmedEnd,
+            message: 'Sentence should end with punctuation.'
+        });
+    }
+    return issues.slice(0, 8);
+}
+
+function findWordTokens(text) {
+    const tokens = [];
+    const regex = /[A-Za-z]+(?:'[A-Za-z]+)?/g;
+    let match = regex.exec(String(text || ''));
+    while (match) {
+        tokens.push({ word: match[0], start: match.index, end: match.index + match[0].length });
+        match = regex.exec(String(text || ''));
+    }
+    return tokens;
+}
+
+function splitSentencesWithOffsets(text) {
+    const sentences = [];
+    const regex = /[^.!?]+[.!?]*/g;
+    let match = regex.exec(String(text || ''));
+    while (match) {
+        if (match[0].trim()) sentences.push({ text: match[0], start: match.index });
+        match = regex.exec(String(text || ''));
+    }
+    return sentences;
+}
+
+function levenshteinDistance(a, b) {
+    const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+    for (let i = 1; i <= a.length; i += 1) {
+        let last = i - 1;
+        previous[0] = i;
+        for (let j = 1; j <= b.length; j += 1) {
+            const old = previous[j];
+            previous[j] = Math.min(
+                previous[j] + 1,
+                previous[j - 1] + 1,
+                last + (a[i - 1] === b[j - 1] ? 0 : 1)
+            );
+            last = old;
+        }
+    }
+    return previous[b.length];
 }
 
 function extractMathTokens(value) {
@@ -1209,6 +1733,9 @@ function resetApp() {
     populateTaxonomySelect('classFilter', taxonomyItems.filter(item => item.type === 'class'), 'Select class');
     populateTaxonomySelect('subjectFilter', [], 'Select subject');
     populateTaxonomySelect('chapterFilter', [], 'Select chapter');
+    document.querySelectorAll('.question-type-filter').forEach(input => {
+        input.checked = true;
+    });
     $('explanationOnlyFilter').checked = true;
     $('instantFeedbackFilter').checked = true;
     $('loadQuestionsBtn').hidden = false;

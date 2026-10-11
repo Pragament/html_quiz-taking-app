@@ -87,6 +87,7 @@ a.btn {
     gap: 8px;
     flex-wrap: wrap;
     justify-content: flex-end;
+    position: relative;
 }
 
 .topbar p,
@@ -168,7 +169,18 @@ a.btn {
 }
 
 .ai-status-chip {
+    border: 0;
+    cursor: pointer;
+    font-family: inherit;
     white-space: nowrap;
+}
+
+.ai-status-chip::after {
+    content: "Details";
+    margin-left: 7px;
+    border-left: 1px solid currentColor;
+    padding-left: 7px;
+    opacity: 0.8;
 }
 
 .ai-status-chip.ready {
@@ -179,6 +191,88 @@ a.btn {
 .ai-status-chip.fallback {
     color: var(--warning);
     background: #fff8e8;
+}
+
+.ai-details-popover {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    z-index: 20;
+    width: min(360px, calc(100vw - 32px));
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    background: #fff;
+    color: var(--text);
+    box-shadow: var(--shadow);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.ai-details-popover strong {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.ai-details-popover p {
+    margin: 0 0 8px;
+}
+
+.ai-details-popover p:last-child {
+    margin-bottom: 0;
+}
+
+.ai-progress-list {
+    display: grid;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.ai-progress-row {
+    display: grid;
+    gap: 5px;
+}
+
+.ai-progress-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: #40566d;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.ai-progress-bar {
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #edf4fa;
+}
+
+.ai-progress-bar i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--primary), #39a78e);
+    transition: width 0.2s ease;
+}
+
+.ai-progress-file {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-progress-error {
+    color: var(--danger);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.ai-retry-btn {
+    margin-top: 8px;
 }
 
 .form-grid {
@@ -202,6 +296,28 @@ a.btn {
     width: auto;
     min-height: auto;
     margin: 3px 0 0;
+}
+
+.checkbox-group-field {
+    grid-column: 1 / -1;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--panel-soft);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px 12px;
+}
+
+.checkbox-group-field legend {
+    padding: 0 4px;
+    color: #41546b;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.checkbox-group-field .checkbox-field {
+    align-content: start;
 }
 
 .field span {
@@ -402,6 +518,186 @@ a.btn {
     border-top: 1px solid #dbe8f2;
     padding-top: 10px;
     line-height: 1.5;
+}
+
+.ai-assessment-detail {
+    display: grid;
+    gap: 12px;
+    border-top: 1px solid #dbe8f2;
+    padding-top: 12px;
+}
+
+.ai-scorecard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.ai-bigscore {
+    color: var(--text);
+    font-size: 34px;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.ai-bigscore small {
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.ai-scoremeta {
+    flex: 1;
+    min-width: 220px;
+}
+
+.ai-scoremeta p,
+.ai-agent-card p,
+.ai-assessment-foot {
+    margin: 7px 0 0;
+}
+
+.ai-band {
+    display: inline-flex;
+    border-radius: 999px;
+    padding: 4px 9px;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.ai-band.correct {
+    color: var(--success);
+    background: #eaf8f1;
+}
+
+.ai-band.manual {
+    color: var(--warning);
+    background: #fff8e8;
+}
+
+.ai-band.wrong {
+    color: var(--danger);
+    background: #fff1ef;
+}
+
+.ai-scorebar,
+.ai-agent-meter {
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #edf4fa;
+    margin-top: 8px;
+}
+
+.ai-scorebar i,
+.ai-agent-meter i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--primary), #39a78e);
+}
+
+.ai-agent-list {
+    display: grid;
+    gap: 10px;
+}
+
+.ai-agent-card {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 11px;
+}
+
+.ai-agent-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.ai-agent-card ul {
+    margin: 8px 0 0;
+    padding-left: 18px;
+}
+
+.ai-annotation-block,
+.ai-key-ideas {
+    display: grid;
+    gap: 8px;
+}
+
+.ai-annotated-answer {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 10px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+}
+
+.ai-annotated-answer mark {
+    border-radius: 3px;
+    padding: 0 2px;
+}
+
+.ai-annotated-answer .m-spell {
+    background: #ffe3e3;
+    border-bottom: 2px solid #ff8787;
+}
+
+.ai-annotated-answer .m-grammar {
+    background: #fff3bf;
+    border-bottom: 2px solid #fcc419;
+}
+
+.ai-legend,
+.ai-key-chip-list {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.ai-legend i {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    margin-right: 4px;
+}
+
+.ai-legend .spell {
+    background: #ff8787;
+}
+
+.ai-legend .grammar {
+    background: #fcc419;
+}
+
+.ai-key-chip {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #f3f7fb;
+    padding: 4px 9px;
+    color: #40566d;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.ai-key-chip.hit {
+    border-color: #bfe8d4;
+    background: #eaf8f1;
+    color: var(--success);
+}
+
+.ai-key-chip.miss {
+    border-color: #f3c7c2;
+    background: #fff1ef;
+    color: var(--danger);
 }
 
 .option-card,
@@ -758,6 +1054,10 @@ a.btn {
         grid-template-columns: 1fr;
     }
 
+    .checkbox-group-field {
+        grid-template-columns: 1fr 1fr;
+    }
+
     .report-card-grid,
     .report-two-column,
     .prompt-card-grid {
@@ -804,5 +1104,9 @@ a.btn {
 
     .panel {
         padding: 12px;
+    }
+
+    .checkbox-group-field {
+        grid-template-columns: 1fr;
     }
 }
