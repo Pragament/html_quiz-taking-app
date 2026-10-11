@@ -287,7 +287,9 @@ a.btn {
 }
 
 .checkbox-field {
+    display: grid;
     align-content: end;
+    align-items: center;
     grid-template-columns: auto minmax(0, 1fr);
     column-gap: 9px;
 }
@@ -337,6 +339,17 @@ a.btn {
     background: #fff;
     color: var(--text);
     padding: 8px 10px;
+}
+
+.field input[type="checkbox"],
+.checkbox-field input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    border-radius: 4px;
+    flex: none;
 }
 
 .btn {
