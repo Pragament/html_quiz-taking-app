@@ -67,7 +67,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
-const APP_VERSION = '2026.10.11.6';
+const APP_VERSION = '2026.10.11.7';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 const TOUR_STEPS = [
     {
@@ -883,6 +883,7 @@ async function selectAdaptiveQuestions(questions, count) {
             reasons: item.reasons
         }))
     };
+    selected.performanceMemory = memory;
     return selected;
 }
 
@@ -896,19 +897,11 @@ async function buildStudentPerformanceMemory() {
     memory.submissions = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
     memory.submissions.forEach(submission => {
         (submission.answers || []).forEach(answer => {
-            memory.answers.push(answer);
-            if (answer.questionId) memory.answeredIds.add(answer.questionId);
-            const result = answerPerformanceResult(answer);
-            if (result === 'weak') {
-                if (answer.questionId) memory.missedIds.add(answer.questionId);
-                incrementMap(memory.weakChapters, answer.chapter || submission.chapter || '');
-                incrementMap(memory.weakTypes, answer.type || '');
-                incrementMap(memory.weakDifficulties, answer.difficulty || submission.difficulty || '');
-                addWeightedTerms(memory.weakTerms, answerMemoryText(answer), 1);
-            } else if (result === 'strong') {
-                if (answer.questionId) memory.correctIds.add(answer.questionId);
-                addWeightedTerms(memory.strongTerms, answerMemoryText(answer), 0.5);
-            }
+            applyAnswerToPerformanceMemory(memory, {
+                ...answer,
+                chapter: answer.chapter || submission.chapter || '',
+                difficulty: answer.difficulty || submission.difficulty || ''
+            });
         });
     });
     return memory;
@@ -925,8 +918,27 @@ function emptyStudentPerformanceMemory() {
         weakTypes: new Map(),
         weakDifficulties: new Map(),
         weakTerms: new Map(),
-        strongTerms: new Map()
+        strongTerms: new Map(),
+        liveAnswerCount: 0
     };
+}
+
+function applyAnswerToPerformanceMemory(memory, answer, source = 'history') {
+    if (!memory || !answer?.questionId) return;
+    memory.answers.push(answer);
+    memory.answeredIds.add(answer.questionId);
+    if (source === 'live') memory.liveAnswerCount = (memory.liveAnswerCount || 0) + 1;
+    const result = answerPerformanceResult(answer);
+    if (result === 'weak') {
+        memory.missedIds.add(answer.questionId);
+        incrementMap(memory.weakChapters, answer.chapter || '');
+        incrementMap(memory.weakTypes, answer.type || '');
+        incrementMap(memory.weakDifficulties, answer.difficulty || '');
+        addWeightedTerms(memory.weakTerms, answerMemoryText(answer), source === 'live' ? 1.5 : 1);
+    } else if (result === 'strong') {
+        memory.correctIds.add(answer.questionId);
+        addWeightedTerms(memory.strongTerms, answerMemoryText(answer), source === 'live' ? 1 : 0.5);
+    }
 }
 
 function answerPerformanceResult(answer) {
@@ -955,6 +967,8 @@ function answerMemoryText(answer) {
 async function rankQuestionsForStudent(questions, memory) {
     const weakTerms = topMapKeys(memory.weakTerms, 18);
     const weakMemoryText = weakTerms.join(' ');
+    const strongTerms = topMapKeys(memory.strongTerms, 18);
+    const strongMemoryText = strongTerms.join(' ');
     const ranked = await Promise.all(questions.map(async (question, index) => {
         let score = Math.max(0, questions.length - index) * 0.001;
         const reasons = [];
@@ -1004,6 +1018,21 @@ async function rankQuestionsForStudent(questions, memory) {
                 }
             }
         }
+        if (strongMemoryText) {
+            if (offlineAi.embedPipe) {
+                const similarity = await offlineSemanticScore(strongMemoryText, questionText);
+                if (similarity !== null && similarity > 0.35) {
+                    score -= similarity * 1.5;
+                    reasons.push(`Lower priority because it is similar to concepts already answered well: ${Math.round(similarity * 100)}%.`);
+                }
+            } else {
+                const overlap = termOverlapScore(strongTerms, contentTerms(questionText));
+                if (overlap) {
+                    score -= overlap * 1.5;
+                    reasons.push(`Lower priority because it overlaps concepts already answered well: ${Math.round(overlap * 100)}%.`);
+                }
+            }
+        }
         if (validExplanationUrl(question.explanationUrl)) {
             score += 0.5;
             reasons.push('Has an explanation link for supported revision.');
@@ -1036,8 +1065,9 @@ function studentMemorySummary(memory) {
     const weakChapters = topMapKeys(memory.weakChapters, 4);
     const weakTypes = topMapKeys(memory.weakTypes, 4).map(type => TYPE_LABELS[type] || type);
     const weakTerms = topMapKeys(memory.weakTerms, 8);
+    const liveText = memory.liveAnswerCount ? `${memory.liveAnswerCount} live answer${memory.liveAnswerCount === 1 ? '' : 's'} from this attempt included. ` : '';
     return [
-        `${memory.answers.length} past answer${memory.answers.length === 1 ? '' : 's'} found across ${memory.submissions.length} submission${memory.submissions.length === 1 ? '' : 's'}.`,
+        `${liveText}${memory.answers.length} answer${memory.answers.length === 1 ? '' : 's'} in memory across ${memory.submissions.length} past submission${memory.submissions.length === 1 ? '' : 's'}.`,
         weakChapters.length ? `Weak chapters: ${weakChapters.join(', ')}.` : 'No repeated weak chapter found.',
         weakTypes.length ? `Weak question types: ${weakTypes.join(', ')}.` : 'No repeated weak question type found.',
         weakTerms.length ? `Memory terms: ${weakTerms.join(', ')}.` : 'No weak-memory terms extracted.'
@@ -1067,6 +1097,53 @@ function termOverlapScore(referenceTerms, candidateTerms) {
     return referenceTerms.filter(term => candidate.has(term)).length / referenceTerms.length;
 }
 
+async function updateLiveSelectionMemory(answer) {
+    if (!quiz?.performanceMemory || !answer?.questionId || quiz.memoryApplied.has(answer.questionId)) return;
+    applyAnswerToPerformanceMemory(quiz.performanceMemory, answer, 'live');
+    quiz.memoryApplied.add(answer.questionId);
+    await reorderRemainingQuestions();
+}
+
+async function reorderRemainingQuestions() {
+    const remaining = quiz.questions.slice(currentIndex + 1);
+    if (!remaining.length) {
+        refreshSelectionMemoryDisplay([]);
+        return;
+    }
+    const ranked = await rankQuestionsForStudent(remaining, quiz.performanceMemory);
+    const answerByQuestionId = new Map(quiz.answers.map(answer => [answer.questionId, answer]));
+    const feedbackByQuestionId = new Map(quiz.feedback.map((feedback, index) => [quiz.questions[index].id, feedback]));
+    const feedbackShownByQuestionId = new Map(quiz.feedbackShown.map((shown, index) => [quiz.questions[index].id, shown]));
+    const lockedQuestions = quiz.questions.slice(0, currentIndex + 1);
+    quiz.questions = [...lockedQuestions, ...ranked.map(item => item.question)];
+    quiz.answers = quiz.questions.map(question => answerByQuestionId.get(question.id) || emptyAnswer(question));
+    quiz.feedback = quiz.questions.map(question => feedbackByQuestionId.get(question.id) || null);
+    quiz.feedbackShown = quiz.questions.map(question => feedbackShownByQuestionId.get(question.id) || false);
+    refreshSelectionMemoryDisplay(ranked);
+}
+
+function refreshSelectionMemoryDisplay(rankedRemaining) {
+    const picked = quiz.questions.map((question, index) => {
+        const rankedItem = rankedRemaining.find(item => item.question.id === question.id);
+        return {
+            index: index + 1,
+            questionId: question.id,
+            title: stripHtml(question.promptHtml || '').slice(0, 140) || `${TYPE_LABELS[question.type] || question.type} question`,
+            type: TYPE_LABELS[question.type] || question.type,
+            chapter: taxonomyLabel(question.chapterId) || question.chapter || 'Any chapter',
+            score: rankedItem?.score ?? 0,
+            reasons: index <= currentIndex
+                ? ['Already answered in this attempt; position is locked.']
+                : rankedItem?.reasons || ['Kept in remaining queue.']
+        };
+    });
+    quiz.selectionMemory = {
+        mode: `${offlineAi.embedPipe ? 'Offline AI semantic ranking' : 'Basic local ranking'} - updated after live answer`,
+        summary: studentMemorySummary(quiz.performanceMemory),
+        picked
+    };
+}
+
 async function startQuiz() {
     if (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) {
         toast('A submission already exists for this admission number in this quiz session.');
@@ -1090,6 +1167,8 @@ async function startQuiz() {
         feedback: selected.map(() => null),
         feedbackShown: selected.map(() => false),
         selectionMemory: selectedQuestions.selectionMemory || null,
+        performanceMemory: selectedQuestions.performanceMemory || emptyStudentPerformanceMemory(),
+        memoryApplied: new Set(),
         startedAt: Date.now(),
         submitted: false,
         filters: getQuizFilters()
@@ -1418,7 +1497,12 @@ async function advanceQuestion() {
         submitQuiz();
         return;
     }
+    if (!quiz.feedback[currentIndex]) {
+        quiz.feedback[currentIndex] = await gradeAnswerWithOfflineAi(quiz.questions[currentIndex], quiz.answers[currentIndex]);
+        await updateLiveSelectionMemory(quiz.feedback[currentIndex]);
+    }
     currentIndex += 1;
+    renderSelectionMemory();
     renderQuiz();
 }
 
@@ -1429,6 +1513,8 @@ async function showInstantFeedback() {
     nextButton.textContent = question.type === 'short_answer' ? 'Assessing...' : 'Checking...';
     quiz.feedback[currentIndex] = await gradeAnswerWithOfflineAi(question, quiz.answers[currentIndex]);
     quiz.feedbackShown[currentIndex] = true;
+    await updateLiveSelectionMemory(quiz.feedback[currentIndex]);
+    renderSelectionMemory();
     renderQuiz();
     nextButton.disabled = false;
 }
