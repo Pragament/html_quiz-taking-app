@@ -70,7 +70,7 @@ const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.12.1';
+const APP_VERSION = '2026.10.12.2';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 const TOUR_STEPS = [
     {
@@ -1007,10 +1007,10 @@ async function selectAdaptiveQuestions(questions, count) {
         memory = emptyStudentPerformanceMemory();
         memory.memoryError = error.message || 'Unable to read previous submissions.';
     }
-    const ranked = await rankQuestionsForStudent(questions, memory);
+    const ranked = await rankQuestionsForStudent(questions, memory, { useOfflineSemantic: false });
     const selected = ranked.slice(0, count).map(item => item.question);
     selected.selectionMemory = {
-        mode: offlineAi.embedPipe ? 'Offline AI semantic ranking' : 'Basic local ranking',
+        mode: 'Fast local ranking',
         summary: studentMemorySummary(memory),
         picked: ranked.slice(0, count).map((item, index) => ({
             index: index + 1,
@@ -1103,7 +1103,8 @@ function answerMemoryText(answer) {
     ].join(' ');
 }
 
-async function rankQuestionsForStudent(questions, memory) {
+async function rankQuestionsForStudent(questions, memory, options = {}) {
+    const useOfflineSemantic = options.useOfflineSemantic !== false && !!offlineAi.embedPipe;
     const weakTerms = topMapKeys(memory.weakTerms, 18);
     const weakMemoryText = weakTerms.join(' ');
     const strongTerms = topMapKeys(memory.strongTerms, 18);
@@ -1143,7 +1144,7 @@ async function rankQuestionsForStudent(questions, memory) {
 
         const questionText = questionMemoryText(question);
         if (weakMemoryText) {
-            if (offlineAi.embedPipe) {
+            if (useOfflineSemantic) {
                 const similarity = await offlineSemanticScore(weakMemoryText, questionText);
                 if (similarity !== null) {
                     score += similarity * 4;
@@ -1158,7 +1159,7 @@ async function rankQuestionsForStudent(questions, memory) {
             }
         }
         if (strongMemoryText) {
-            if (offlineAi.embedPipe) {
+            if (useOfflineSemantic) {
                 const similarity = await offlineSemanticScore(strongMemoryText, questionText);
                 if (similarity !== null && similarity > 0.35) {
                     score -= similarity * 1.5;
@@ -1249,7 +1250,7 @@ async function reorderRemainingQuestions() {
         refreshSelectionMemoryDisplay([]);
         return;
     }
-    const ranked = await rankQuestionsForStudent(remaining, quiz.performanceMemory);
+    const ranked = await rankQuestionsForStudent(remaining, quiz.performanceMemory, { useOfflineSemantic: false });
     const answerByQuestionId = new Map(quiz.answers.map(answer => [answer.questionId, answer]));
     const feedbackByQuestionId = new Map(quiz.feedback.map((feedback, index) => [quiz.questions[index].id, feedback]));
     const feedbackShownByQuestionId = new Map(quiz.feedbackShown.map((shown, index) => [quiz.questions[index].id, shown]));
@@ -1281,7 +1282,7 @@ function refreshSelectionMemoryDisplay(rankedRemaining) {
         };
     });
     quiz.selectionMemory = {
-        mode: `${offlineAi.embedPipe ? 'Offline AI semantic ranking' : 'Basic local ranking'} - updated after live answer`,
+        mode: 'Fast local ranking - updated after live answer',
         summary: studentMemorySummary(quiz.performanceMemory),
         picked
     };
