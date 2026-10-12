@@ -70,7 +70,7 @@ const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
 const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.11.16';
+const APP_VERSION = '2026.10.12.1';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 const TOUR_STEPS = [
     {
@@ -838,8 +838,16 @@ async function loadPublishedQuestions() {
         } else {
             setStatus('Loading published questions...');
             if (!taxonomyItems.length) await loadTaxonomyFilters();
-            const snap = await getDocs(query(collection(db, COLLECTIONS.questions), where('status', '==', 'published')));
             const filters = getQuizFilters();
+            if (!filters.classId) {
+                loadedQuestions = [];
+                els.startQuizBtn.disabled = true;
+                els.questionLoadSummary.textContent = 'Select a class before loading questions.';
+                setStatus('Class is required to load questions.');
+                $('classFilter').focus();
+                return;
+            }
+            const snap = await getDocs(query(collection(db, COLLECTIONS.questions), where('status', '==', 'published')));
             loadedQuestions = snap.docs
                 .map(d => ({ id: d.id, ...d.data() }))
                 .filter(q => matchesQuizFilters(q, filters));
