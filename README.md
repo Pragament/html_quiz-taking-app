@@ -20,7 +20,7 @@ Independent responsive quiz-taking app for students. It signs students in with F
 
 1. Students sign in at `login.html` with their school email and password using Firebase Authentication. Accounts are provisioned by the school; this app does not register accounts.
 2. The app directly reads `studentProfiles/{currentUser.uid}` and requires an active, valid profile with section, admission number, and student key.
-3. The dashboard queries `classrooms where sectionId == profile.sectionId`, shows enabled, unarchived quiz sessions, and sorts newest first using `createdAt`, falling back to `createdDate`. No composite index is needed.
+3. The dashboard queries `classrooms where sectionId == profile.sectionId`, shows only pending quiz sessions that are enabled, unarchived, not yet submitted, and due today or later, then sorts them by due date ascending. No composite index is needed.
 4. Clicking a session rechecks its availability and section, then opens the existing quiz setup. Teacher-selected question lists and sessions with saved class/subject/chapter taxonomy IDs load automatically; other sessions use quiz filters. Quiz Settings show audio/listen controls for `quiz`, `wpt`, and `rpt`, while `practice`, `reading_practice`, and `writing_practice` also show instant feedback and answer-helper settings. In `reading_practice` and `writing_practice`, adaptive question memory also shows and weighs ACTFL skill, level, sublevel, and mode fields.
 5. A previously submitted session is blocked from another attempt. Past Submissions uses the authenticated profile's student key, including historical submissions.
 6. Existing question selection, difficulty overrides, audio, translations, instant feedback, and offline quiz navigation remain available.

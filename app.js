@@ -59,7 +59,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.14.7';
+const APP_VERSION = '2026.10.14.8';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -580,15 +580,16 @@ async function loadStudentSessions() {
         ]);
         const submittedClassrooms = new Set(submissionsSnap.docs.map(item => item.data().classroomId));
         if (studentProfile !== profile) return;
+        const today = new Date();
         recentSessions = snap.docs.map(item => ({ classroomId: item.id, classroom: item.data() }))
-            .filter(item => item.classroom.classEnabled === true && item.classroom.archived !== true)
-            .sort((a, b) => sessionCreatedMillis(b.classroom) - sessionCreatedMillis(a.classroom));
+            .filter(item => isPendingQuizSession(item.classroom, submittedClassrooms.has(item.classroomId), today))
+            .sort((a, b) => sessionDueMillis(a.classroom) - sessionDueMillis(b.classroom));
         $('dashboardSection').textContent = `${recentSessions[0]?.classroom.sectionName || profile.sectionId} · Admission ${profile.admissionNo}`;
         $('sessionList').innerHTML = recentSessions.length ? recentSessions.map(({ classroomId, classroom }) => {
             const date = sessionCreatedMillis(classroom);
             const status = quizSessionStatus(classroom, submittedClassrooms.has(classroomId));
             return `<button type="button" class="session-card ${status.className}" data-session-id="${esc(classroomId)}"><strong>${esc(classroom.className || classroom.classCode || classroomId)}</strong>${status.label ? `<span class="session-status">${esc(status.label)}</span>` : ''}<span>${esc(classroom.sectionName || profile.sectionId)}${date ? ` · ${esc(new Date(date).toLocaleString())}` : ''}</span><span class="session-dates"><span>Start: ${esc(sessionScheduleDate(classroom.startAt, 'Not scheduled'))}</span><span>Due: ${esc(sessionScheduleDate(classroom.dueAt, 'No due date'))}</span></span><span>Take Quiz →</span></button>`;
-        }).join('') : '<div class="quiz-summary">No active quiz sessions are available for your section yet.</div>';
+        }).join('') : '<div class="quiz-summary">No pending quiz sessions are available for your section.</div>';
         setStatus('Choose a quiz session to begin');
     } catch (error) {
         if (studentProfile !== profile) return;
@@ -599,21 +600,35 @@ async function loadStudentSessions() {
 
 function quizSessionStatus(classroom, submitted, today = new Date()) {
     if (submitted) return { className: 'session-submitted', label: 'Submitted' };
-    const dueMillis = classroom.dueAt?.toMillis?.();
+    const dueMillis = sessionDueMillis(classroom);
     if (!Number.isFinite(dueMillis)) return { className: '', label: '' };
     const due = new Date(dueMillis);
     // Compare local calendar dates, avoiding daylight-saving changes in day lengths.
-    const dayNumber = date => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000;
-    const daysRemaining = dayNumber(due) - dayNumber(today);
+    const daysRemaining = localDayNumber(due) - localDayNumber(today);
     if (daysRemaining < 0) return { className: 'session-overdue', label: 'Overdue' };
     if (daysRemaining <= 3) return { className: 'session-due-soon', label: daysRemaining === 0 ? 'Due today' : 'Due within 3 days' };
     if (daysRemaining <= 6) return { className: 'session-due-week', label: 'Due within 6 days' };
     return { className: '', label: '' };
 }
 
+function isPendingQuizSession(classroom, submitted, today = new Date()) {
+    if (submitted || classroom.classEnabled !== true || classroom.archived === true) return false;
+    const dueMillis = sessionDueMillis(classroom);
+    if (!Number.isFinite(dueMillis)) return false;
+    return localDayNumber(new Date(dueMillis)) >= localDayNumber(today);
+}
+
+function localDayNumber(date) {
+    return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000;
+}
+
 function sessionScheduleDate(timestamp, fallback) {
     const millis = timestamp?.toMillis?.();
     return Number.isFinite(millis) ? new Date(millis).toLocaleString() : fallback;
+}
+
+function sessionDueMillis(classroom) {
+    return classroom.dueAt?.toMillis?.();
 }
 
 function sessionCreatedMillis(classroom) {
@@ -630,6 +645,9 @@ async function openQuizSession(classroomId) {
         const classroom = snap.exists() ? snap.data() : null;
         if (!classroom || classroom.sectionId !== profile.sectionId || classroom.classEnabled !== true || classroom.archived === true) {
             throw new Error('This quiz session is no longer available. Refresh the dashboard.');
+        }
+        if (!isPendingQuizSession(classroom, false)) {
+            throw new Error('This quiz session is no longer pending. Refresh the dashboard.');
         }
         session = { ...profile, classroomId, classroom };
         loadedQuestions = [];
