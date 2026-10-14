@@ -703,11 +703,13 @@ function submissionsUrl(options = {}) {
 }
 
 function configureSetupForClassroom() {
+    $('aiSelectionMemoryFilter').checked = false;
     const hasClassroomList = !!session?.classroom?.questionBankListId;
     const hasLockedTaxonomyScope = hasClassroomTaxonomyScope();
     const showSettings = shouldShowQuizSettings();
     const showAudioSettings = shouldShowAudioQuizSettings();
     const showPracticeSettings = shouldShowPracticeQuizSettings();
+    $('aiSelectionMemorySetting').hidden = !showPracticeSettings;
     els.startQuizBtn.textContent = session?.localPractice ? 'Start Practice' : 'Start Quiz';
     els.quizFiltersGroup.hidden = hasClassroomList || hasLockedTaxonomyScope;
     els.quizSettingsGroup.hidden = !showSettings;
@@ -872,7 +874,10 @@ async function loadPublishedQuestions() {
                 filters.explanationOnly ? 'with explanations' : '',
                 filters.translationOnly ? 'with translations' : ''
             ].filter(Boolean).join(' and ');
-            els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'}${filterSummary ? ` ${filterSummary}` : ''} match these filters. All are downloaded locally; ${Math.min(requested, loadedQuestions.length)} will be chosen using student performance memory at Start.`;
+            const selectionSummary = shouldShowPracticeQuizSettings()
+                ? `the first ${Math.min(requested, loadedQuestions.length)} will be used in default order unless AI question selection memory is enabled`
+                : `${Math.min(requested, loadedQuestions.length)} will be randomly selected and ordered`;
+            els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'}${filterSummary ? ` ${filterSummary}` : ''} match these filters. All are downloaded locally; ${selectionSummary}.`;
         }
         els.startQuizBtn.disabled = (hasSubmittedCurrentSession) || !loadedQuestions.length;
         setStatus(hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : 'Questions loaded. You can start the quiz.');
@@ -921,7 +926,7 @@ function classroomListSummary(allQuestions, difficultyQuestions, selectedQuestio
         ? `${difficultyQuestions.length} of ${allQuestions.length} listed question${allQuestions.length === 1 ? '' : 's'} match ${difficulty} difficulty. `
         : '';
     if (!Object.keys(normalizedCounts).length) {
-        return `${difficultyPrefix}${selectedQuestions.length} quiz session question${selectedQuestions.length === 1 ? '' : 's'} loaded in teacher-selected order.`;
+        return `${difficultyPrefix}${selectedQuestions.length} quiz session question${selectedQuestions.length === 1 ? '' : 's'} loaded. ${shouldShowPracticeQuizSettings() ? 'List order is used unless AI question selection memory is enabled.' : 'Questions will be randomly ordered at Start.'}`;
     }
 
     const pickedLabels = Object.entries(normalizedCounts)
@@ -1013,16 +1018,6 @@ function validExplanationUrl(value) {
     } catch {
         return '';
     }
-}
-
-function groupQuestionsByExplanationUrl(questions) {
-    const grouped = new Map();
-    questions.forEach(question => {
-        const key = validExplanationUrl(question.explanationUrl) || `question:${question.id}`;
-        if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key).push(question);
-    });
-    return Array.from(grouped.values()).flat();
 }
 
 async function selectAdaptiveQuestions(questions, count) {
@@ -1324,13 +1319,14 @@ function termOverlapScore(referenceTerms, candidateTerms) {
 }
 
 async function updateLiveSelectionMemory(answer) {
-    if (!quiz?.performanceMemory || !answer?.questionId || quiz.memoryApplied.has(answer.questionId)) return;
+    if (!quiz?.useAiSelectionMemory || !quiz.performanceMemory || !answer?.questionId || quiz.memoryApplied.has(answer.questionId)) return;
     applyAnswerToPerformanceMemory(quiz.performanceMemory, answer, 'live');
     quiz.memoryApplied.add(answer.questionId);
     await reorderRemainingQuestions();
 }
 
 async function reorderRemainingQuestions() {
+    if (!quiz?.useAiSelectionMemory) return;
     const remaining = quiz.questions.slice(currentIndex + 1);
     if (!remaining.length) {
         refreshSelectionMemoryDisplay([]);
@@ -1387,14 +1383,16 @@ async function startQuiz() {
     const count = hasClassroomList
         ? loadedQuestions.length
         : Math.max(1, Number($('questionCountInput').value || loadedQuestions.length));
-    const selectedQuestions = hasClassroomList
-        ? loadedQuestions
-        : await selectAdaptiveQuestions(loadedQuestions, Math.min(count, loadedQuestions.length));
-    const selected = groupQuestionsByExplanationUrl(selectedQuestions).map(snapshotQuestion);
-    const audioSettings = shouldShowAudioQuizSettings();
     const practiceSettings = shouldShowPracticeQuizSettings();
+    const useAiSelectionMemory = practiceSettings && $('aiSelectionMemoryFilter').checked;
+    const selectedQuestions = useAiSelectionMemory
+        ? await selectAdaptiveQuestions(loadedQuestions, Math.min(count, loadedQuestions.length))
+        : (practiceSettings ? loadedQuestions : shuffle(loadedQuestions)).slice(0, count);
+    const selected = selectedQuestions.map(snapshotQuestion);
+    const audioSettings = shouldShowAudioQuizSettings();
     quiz = {
         localPractice: session.localPractice === true,
+        useAiSelectionMemory,
         questions: selected,
         answers: selected.map(q => emptyAnswer(q)),
         instantFeedback: practiceSettings,
