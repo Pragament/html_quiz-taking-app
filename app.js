@@ -42,6 +42,10 @@ let currentIndex = 0;
 let toastTimer = null;
 let timerInterval = null;
 let hasSubmittedCurrentSession = false;
+let practiceDrafts = new Map();
+let practiceSaveTimer = null;
+let practiceSaveQueue = Promise.resolve();
+let practiceSavingAction = false;
 let taxonomyItems = [];
 let taxonomyById = new Map();
 let speechVoices = [];
@@ -59,7 +63,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.14.10';
+const APP_VERSION = '2026.10.14.11';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -127,6 +131,27 @@ initializeSpeechControls();
 preloadOfflineAiModels();
 onAuthStateChanged(auth, handleStudentAuth);
 function bindEvents() {
+    $('pausePracticeBtn').addEventListener('click', pausePractice);
+    $('savedPracticeList').addEventListener('click', event => {
+        const button = event.target.closest('[data-session-id]');
+        if (button) openQuizSession(button.dataset.sessionId);
+    });
+    ['input', 'change'].forEach(type => els.answerArea.addEventListener(type, () => {
+        if (!canSavePracticeProgress() || quiz.completing) return;
+        saveCurrentAnswer();
+        schedulePracticeSave();
+    }));
+    window.addEventListener('pagehide', () => {
+        if (!canSavePracticeProgress() || quiz.completing) return;
+        saveCurrentAnswer();
+        cachePracticeDraft(practiceDraftData());
+    });
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden && canSavePracticeProgress() && !quiz.completing) {
+            saveCurrentAnswer();
+            savePracticeProgress();
+        }
+    });
     els.explanationToggleBtn.addEventListener('click', () => {
         setExplanationCollapsed(els.explanationToggleBtn.getAttribute('aria-expanded') === 'true');
     });
@@ -585,8 +610,12 @@ async function loadStudentSessions() {
             getDocs(query(collection(db, COLLECTIONS.classrooms), where('sectionId', '==', profile.sectionId))),
             getDocs(query(collection(db, COLLECTIONS.submissions), where('studentKey', '==', profile.studentKey)))
         ]);
-        const submittedClassrooms = new Set(submissionsSnap.docs.map(item => item.data().classroomId));
+        const submissions = submissionsSnap.docs.map(item => ({ ...item.data(), id: item.id }));
+        const submittedClassrooms = new Set(submissions.filter(item => !isPracticeDraft(item)).map(item => item.classroomId));
         if (studentProfile !== profile) return;
+        practiceDrafts = new Map(submissions.filter(isPracticeDraft).map(item => [item.classroomId, item]));
+        $('savedPracticeSection').hidden = !practiceDrafts.size;
+        $('savedPracticeList').innerHTML = Array.from(practiceDrafts.values()).map(item => `<button type="button" class="session-card" data-session-id="${esc(item.classroomId)}"><strong>${esc(item.quizSessionLabel || item.classroomId)}</strong><span>Question ${Number(item.currentIndex || 0) + 1} of ${Number(item.questionCount || 0)} · ${item.status === 'paused' ? 'Paused' : 'In progress'}</span><span>Resume Practice →</span></button>`).join('');
         const today = new Date();
         recentSessions = snap.docs.map(item => ({ classroomId: item.id, classroom: item.data() }))
             .filter(item => isPendingQuizSession(item.classroom, submittedClassrooms.has(item.classroomId), today))
@@ -687,6 +716,8 @@ async function openQuizSession(classroomId) {
             const detailUrl = `submission.html?${new URLSearchParams({ id: existingSubmissionId })}`;
             els.questionLoadSummary.innerHTML = `You have already submitted this quiz session. <a href="${esc(detailUrl)}">View your submission</a> to review your answers.`;
             setStatus('Already submitted for this quiz session');
+        } else if (shouldShowPracticeQuizSettings() && practiceDrafts.has(classroomId)) {
+            await resumePractice(practiceDrafts.get(classroomId).id);
         } else if (hasQuizSessionQuestionList() || hasClassroomTaxonomyScope()) {
             await loadPublishedQuestions();
         } else {
@@ -1057,7 +1088,7 @@ async function buildStudentPerformanceMemory() {
         collection(db, COLLECTIONS.submissions),
         where('studentKey', '==', session.studentKey)
     ));
-    memory.submissions = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+    memory.submissions = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() })).filter(item => !isPracticeDraft(item));
     memory.submissions.forEach(submission => {
         (submission.answers || []).forEach(answer => {
             applyAnswerToPerformanceMemory(memory, {
@@ -1413,12 +1444,14 @@ async function startQuiz() {
         filters: getQuizFilters()
     };
     currentIndex = 0;
+    $('nextQuestionBtn').disabled = false;
     startTimer();
     setExplanationCollapsed(false);
     showOnly('quiz');
-    setStatus('Quiz started. Questions are now local until submit.');
+    setStatus(canSavePracticeProgress() ? 'Practice started. Progress saves automatically; you can pause and resume.' : 'Quiz started. Questions are now local until submit.');
     renderSelectionMemory();
     renderQuiz();
+    if (canSavePracticeProgress()) await savePracticeProgress();
 }
 
 function snapshotQuestion(question) {
@@ -1573,6 +1606,7 @@ function emptyAnswer(question) {
 }
 
 function renderQuiz() {
+    $('practiceProgressControls').hidden = !canSavePracticeProgress();
     const question = quiz.questions[currentIndex];
     const answer = quiz.answers[currentIndex];
     ensureQuestionTranslationSelection(question);
@@ -1596,6 +1630,7 @@ function renderQuiz() {
     if (!els.questionPrompt.hidden) renderRich(els.questionPrompt);
     renderRich(els.answerArea);
     renderRich(els.instantFeedbackPanel);
+    if (canSavePracticeProgress()) schedulePracticeSave();
 }
 
 function renderQuestionAudioControls(question) {
@@ -2200,6 +2235,7 @@ function saveCurrentAnswer() {
 }
 
 async function advanceQuestion() {
+    if (practiceSavingAction) return;
     saveCurrentAnswer();
     if (quiz.instantFeedback && !quiz.feedbackShown[currentIndex]) {
         await showInstantFeedback();
@@ -2216,6 +2252,7 @@ async function advanceQuestion() {
     currentIndex += 1;
     renderSelectionMemory();
     renderQuiz();
+    if (canSavePracticeProgress()) await savePracticeProgress();
 }
 
 async function showInstantFeedback() {
@@ -2229,10 +2266,11 @@ async function showInstantFeedback() {
     renderSelectionMemory();
     renderQuiz();
     nextButton.disabled = false;
+    if (canSavePracticeProgress()) await savePracticeProgress();
 }
 
 async function submitQuiz() {
-    if (!quiz || quiz.submitted) return;
+    if (!quiz || quiz.submitted || practiceSavingAction) return;
     saveCurrentAnswer();
     const unanswered = quiz.answers.filter((a, i) => !isAnswered(quiz.questions[i], a)).length;
     if (unanswered && !confirm(`${unanswered} question(s) are unanswered. ${quiz.localPractice ? 'Finish practice' : 'Submit'} anyway?`)) return;
@@ -2275,6 +2313,9 @@ async function submitQuiz() {
         submittedAtMillis: Date.now()
     };
     try {
+        quiz.completing = true;
+        clearTimeout(practiceSaveTimer);
+        await practiceSaveQueue.catch(() => {});
         setStatus('Submitting quiz...');
         if (await hasExistingClassroomSubmission()) {
             toast('A submission already exists for this admission number in this quiz session.');
@@ -2282,6 +2323,7 @@ async function submitQuiz() {
             return;
         }
         await setDoc(doc(db, COLLECTIONS.submissions, submissionDocId()), submission);
+        clearPracticeCache(session);
         quiz.submitted = true;
         stopTimer();
         renderResult(submission);
@@ -2290,6 +2332,8 @@ async function submitQuiz() {
     } catch (error) {
         toast(error.message || 'Submit failed. Reconnect and try again.');
         setStatus('Submit failed');
+    } finally {
+        quiz.completing = false;
     }
 }
 
@@ -2302,7 +2346,7 @@ async function findExistingClassroomSubmissionId() {
         collection(db, COLLECTIONS.submissions),
         where('studentKey', '==', session.studentKey)
     ));
-    return snap.docs.find(existing => existing.data().classroomId === session.classroomId)?.id || null;
+    return snap.docs.find(existing => existing.data().classroomId === session.classroomId && !isPracticeDraft(existing.data()))?.id || null;
 }
 
 function hasQuizSessionQuestionList() {
@@ -2767,6 +2811,155 @@ async function renderRich(root) {
     }
 }
 
+function isPracticeDraft(value) {
+    return value?.practiceProgress === true && ['in_progress', 'paused'].includes(value.status);
+}
+
+function canSavePracticeProgress() {
+    return !!(quiz && !quiz.submitted && !quiz.localPractice && session?.classroomId && shouldShowPracticeQuizSettings());
+}
+
+function practiceCacheKey(owner = session) {
+    return `quizPracticeProgress:${owner.authUid}:${owner.classroomId}`;
+}
+
+function cachePracticeDraft(draft) {
+    try { localStorage.setItem(practiceCacheKey(draft), JSON.stringify(draft)); } catch { /* Firestore remains the primary store. */ }
+}
+
+function clearPracticeCache(owner) {
+    try { localStorage.removeItem(practiceCacheKey(owner)); } catch { /* Storage may be unavailable. */ }
+}
+
+function practiceDraftData(status = 'in_progress') {
+    const elapsedMs = Math.max(0, (quiz.pausedAt || Date.now()) - quiz.startedAt);
+    const practiceState = JSON.stringify({ quiz, currentIndex, elapsedMs }, (key, value) => {
+        if (value instanceof Set) return { practiceType: 'Set', entries: [...value] };
+        if (value instanceof Map) return { practiceType: 'Map', entries: [...value] };
+        return value;
+    });
+    return {
+        authUid: session.authUid,
+        email: session.email,
+        classroomId: session.classroomId,
+        sectionId: session.sectionId,
+        admissionNo: session.admissionNo,
+        studentName: session.studentName || '',
+        studentKey: session.studentKey,
+        quizSessionLabel: els.classroomLabel.textContent,
+        practiceProgress: true,
+        progressVersion: 1,
+        status,
+        questionCount: quiz.questions.length,
+        currentIndex,
+        answers: JSON.parse(JSON.stringify(quiz.answers)),
+        practiceState,
+        updatedAtMillis: Date.now()
+    };
+}
+
+function schedulePracticeSave() {
+    if (!canSavePracticeProgress() || quiz.completing || practiceSavingAction) return;
+    cachePracticeDraft(practiceDraftData());
+    clearTimeout(practiceSaveTimer);
+    practiceSaveTimer = setTimeout(() => savePracticeProgress(), 600);
+}
+
+async function savePracticeProgress(status = 'in_progress') {
+    if (!canSavePracticeProgress() || quiz.completing) return true;
+    clearTimeout(practiceSaveTimer);
+    const draft = practiceDraftData(status);
+    const id = submissionDocId();
+    cachePracticeDraft(draft);
+    $('practiceSaveStatus').textContent = 'Saving progress...';
+    const write = practiceSaveQueue.catch(() => {}).then(() => setDoc(doc(db, COLLECTIONS.submissions, id), draft));
+    practiceSaveQueue = write;
+    try {
+        await write;
+        practiceDrafts.set(draft.classroomId, { ...draft, id });
+        if (session?.classroomId === draft.classroomId) $('practiceSaveStatus').textContent = 'Progress saved';
+        return true;
+    } catch (error) {
+        if (session?.classroomId === draft.classroomId) $('practiceSaveStatus').textContent = 'Progress not synced. Retry Pause to save.';
+        toast(error.message || 'Unable to save practice progress. Reconnect and try again.');
+        return false;
+    }
+}
+
+async function pausePractice() {
+    if (!canSavePracticeProgress() || practiceSavingAction) return;
+    if ($('nextQuestionBtn').disabled) return toast('Wait for the current answer to finish checking.');
+    practiceSavingAction = true;
+    const pausedQuiz = quiz;
+    const pausedSession = session;
+    $('pausePracticeBtn').disabled = true;
+    $('nextQuestionBtn').disabled = true;
+    saveCurrentAnswer();
+    quiz.pausedAt = Date.now();
+    stopTimer();
+    window.speechSynthesis?.cancel();
+    const saved = await savePracticeProgress('paused');
+    practiceSavingAction = false;
+    if (quiz !== pausedQuiz || session !== pausedSession) return;
+    $('pausePracticeBtn').disabled = false;
+    $('nextQuestionBtn').disabled = false;
+    if (!saved) {
+        quiz.startedAt += Date.now() - quiz.pausedAt;
+        delete quiz.pausedAt;
+        startTimer();
+        return;
+    }
+    session = null;
+    quiz = null;
+    loadedQuestions = [];
+    currentIndex = 0;
+    await loadStudentSessions();
+    setStatus('Practice paused. Choose Resume Practice to continue.');
+}
+
+async function resumePractice(id) {
+    const owner = session;
+    const snap = await getDoc(doc(db, COLLECTIONS.submissions, id));
+    if (session !== owner || studentProfile?.authUid !== owner.authUid) return;
+    let draft = snap.exists() ? snap.data() : null;
+    if (!isPracticeDraft(draft) || draft.studentKey !== owner.studentKey || draft.authUid !== owner.authUid
+        || draft.classroomId !== owner.classroomId || draft.progressVersion !== 1) {
+        throw new Error('This saved practice session is unavailable. Refresh and try again.');
+    }
+    try {
+        const cached = JSON.parse(localStorage.getItem(practiceCacheKey(owner)) || 'null');
+        if (isPracticeDraft(cached) && cached.authUid === draft.authUid && cached.classroomId === draft.classroomId
+            && cached.studentKey === draft.studentKey && cached.updatedAtMillis > draft.updatedAtMillis) draft = cached;
+    } catch { /* Use the cloud copy when the browser cache cannot be read. */ }
+    const state = JSON.parse(draft.practiceState, (key, value) => {
+        if (value?.practiceType === 'Set' && Array.isArray(value.entries)) return new Set(value.entries);
+        if (value?.practiceType === 'Map' && Array.isArray(value.entries)) return new Map(value.entries);
+        return value;
+    });
+    const count = state.quiz?.questions?.length;
+    if (!count || state.quiz.localPractice || state.quiz.submitted || !Number.isInteger(state.currentIndex)
+        || state.currentIndex < 0 || state.currentIndex >= count || !Number.isFinite(state.elapsedMs)
+        || ['answers', 'feedback', 'feedbackShown', 'promptRevealed', 'translationChoices'].some(key => state.quiz[key]?.length !== count)) {
+        throw new Error('The saved practice progress is incomplete.');
+    }
+    quiz = state.quiz;
+    quiz.startedAt = Date.now() - Math.max(0, state.elapsedMs);
+    delete quiz.pausedAt;
+    delete quiz.completing;
+    currentIndex = state.currentIndex;
+    loadedQuestions = quiz.questions;
+    hasSubmittedCurrentSession = false;
+    $('nextQuestionBtn').disabled = false;
+    $('pausePracticeBtn').disabled = false;
+    setExplanationCollapsed(false);
+    startTimer();
+    showOnly('quiz');
+    renderSelectionMemory();
+    renderQuiz();
+    setStatus('Practice resumed from your saved progress.');
+    await savePracticeProgress();
+}
+
 function showOnly(view) {
     els.dashboardView.hidden = view !== 'dashboard';
     els.setupView.hidden = view !== 'setup' && !(view === 'dashboard' && session?.localPractice);
@@ -2774,7 +2967,12 @@ function showOnly(view) {
     els.resultView.hidden = view !== 'result';
 }
 
-function resetApp() {
+async function resetApp() {
+    if (practiceSavingAction) return;
+    if (canSavePracticeProgress()) {
+        await pausePractice();
+        return;
+    }
     session = null;
     loadedQuestions = [];
     quiz = null;

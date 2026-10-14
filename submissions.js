@@ -103,6 +103,7 @@ async function loadSubmissionHistory(verifiedSession) {
         ));
         const submissions = snap.docs
             .map(d => ({ ...d.data(), id: d.id }))
+            .filter(item => !(item.practiceProgress === true && ['in_progress', 'paused'].includes(item.status)))
             .sort((a, b) => (b.submittedAtMillis || 0) - (a.submittedAtMillis || 0));
         renderHistory(submissions);
         els.statusText.textContent = `${submissions.length} submission${submissions.length === 1 ? '' : 's'} found.`;
@@ -128,7 +129,8 @@ async function loadSubmissionDetail(profile) {
     try {
         const snap = await getDoc(doc(db, COLLECTIONS.submissions, id));
         const submission = snap.exists() ? snap.data() : null;
-        if (!submission || submission.studentKey !== profile.studentKey) {
+        if (!submission || submission.studentKey !== profile.studentKey
+            || (submission.practiceProgress === true && ['in_progress', 'paused'].includes(submission.status))) {
             throw new Error('This submission is unavailable.');
         }
         reportPromptTexts = [];

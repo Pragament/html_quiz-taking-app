@@ -39,6 +39,7 @@ test('practice completion grades answers without any Firestore calls', async () 
     const forbidden = () => { throw new Error('Practice must not access submission storage'); };
     const ctx = vm.createContext({
         quiz: { localPractice: true, questions: [{ id: 'q1' }], answers: [{ selectedOptions: ['a'] }], feedback: [] },
+        practiceSavingAction: false,
         saveCurrentAnswer() {}, isAnswered: () => true,
         gradeAnswerWithOfflineAi: async () => ({ isCorrect: true }),
         stopTimer() { ctx.stopped = true; },

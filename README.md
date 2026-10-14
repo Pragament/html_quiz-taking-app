@@ -26,6 +26,7 @@ Independent responsive quiz-taking app for students. It signs students in with F
 6. Existing question selection, difficulty overrides, audio, translations, instant feedback, and offline quiz navigation remain available.
 7. Submissions use the existing deterministic session/section/admission document ID and now include `authUid` and `email`.
 8. Dashboard returns from a quiz to the session list. Sign Out ends the Firebase session. Firebase restores login across reloads.
+9. Assigned practice sessions autosave progress in their submission document and support Pause/Resume after refresh, separately for each session. Unfinished progress is excluded from completed submissions and reports. Homepage practice remains unsaved. Merge the draft create/update rules into the project's existing Firestore rules before using this feature.
 
 ## Firebase setup
 

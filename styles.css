@@ -532,6 +532,19 @@ a.btn {
     grid-column: 1 / -1;
 }
 
+#practiceProgressControls {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+#practiceSaveStatus {
+    color: var(--muted);
+    font-size: 13px;
+}
+
 .selection-memory-panel {
     margin-top: 12px;
     border: 1px solid var(--line);

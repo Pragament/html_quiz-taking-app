@@ -128,7 +128,7 @@ Optional learning support fields:
 - `actfl_level` - ACTFL proficiency level. Supported values: `Novice Low`, `Novice Mid`, `Novice High`, `Intermediate Low`, `Intermediate Mid`, `Intermediate High`, `Advanced Low`, `Advanced Mid`, `Advanced High`, `Superior`, `Distinguished`.
 - `actfl_sublevel` - ACTFL sublevel. Supported values: `Low`, `Mid`, `High`; leave blank for `Superior` or `Distinguished`.
 - `actfl_mode` - ACTFL communication mode. Supported values: `Interpersonal`, `Interpretive`, `Presentational`.
-- `explanationUrl` - student-facing topic explanation URL. Step 2 can filter to questions with this field, and the quiz view embeds the URL beside grouped related questions.
+- `explanationUrl` - student-facing topic explanation URL. Step 2 can filter to questions with this field. Practice modes embed the URL in a collapsible, resizable panel.
 - `explanation` - explanation text shown in the instant feedback panel when Step 2 instant feedback is enabled.
 - Short-answer instant feedback stores an `aiReview` object on the submitted answer with offline marks, max marks, and the reason for the awarded points.
 
@@ -226,6 +226,12 @@ Field notes:
 - `isCorrect` is `true` or `false` for MCQ, True/False, and FIB. It is `null` for short answers.
 - `submittedAt` is a server timestamp.
 - `submittedAtMillis` is a device timestamp used for newest-first client sorting.
+
+Assigned sessions in `practice`, `reading_practice`, and `writing_practice` modes also use this same document ID for saved progress before submission. Progress documents include `practiceProgress: true`, `progressVersion: 1`, `status: 'in_progress' | 'paused'`, `currentIndex`, `updatedAtMillis`, and `practiceState` (a JSON string containing question snapshots, raw answers, feedback, settings, elapsed time, and serialized AI memory Maps/Sets). Progress autosaves when answers change or questions advance; Pause saves before returning to the dashboard. Resume restores the stored question order and state rather than selecting questions again.
+
+Unfinished progress is excluded from pending-session completion checks, submission history, reports, and past-performance memory. Final submission replaces the progress document with the completed submission shape above, which remains immutable. Homepage practice does not write progress. A browser backup scoped by authenticated user and session recovers edits made just before refresh while the cloud autosave was pending.
+
+Merge and deploy the practice-draft create/update rules in `firestore.rules` with the existing production rules before enabling cloud pause/resume. They permit updates only to the owner's unfinished assigned practice document and allow a single transition to completed submission; completed submissions cannot be overwritten.
 
 ## Query Patterns
 

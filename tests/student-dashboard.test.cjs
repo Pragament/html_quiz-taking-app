@@ -10,26 +10,28 @@ function setup() {
         return nodes.get(id);
     };
     let rows = [];
+    let submissionRows = [];
     let selected = null;
     const ctx = vm.createContext({
         console, Date, Number, URLSearchParams,
-        $: node, els: { resetBtn: node('reset'), welcomeTitle: node('welcome'), classroomLabel: node('label'), questionLoadSummary: node('summary') },
+        $: node, els: { dashboardView: node('dashboard'), resetBtn: node('reset'), welcomeTitle: node('welcome'), classroomLabel: node('label'), questionLoadSummary: node('summary') },
         db: {}, COLLECTIONS: { classrooms: 'classrooms', submissions: 'submissions' },
         collection: (...args) => args, query: (...args) => args, where: (...args) => args, doc: (...args) => args,
-        getDocs: async q => ({ docs: q[0][1] === 'submissions' ? [] : rows }), getDoc: async () => selected,
+        getDocs: async q => ({ docs: q[0][1] === 'submissions' ? submissionRows : rows }), getDoc: async () => selected,
         showOnly: view => { ctx.view = view; }, setStatus: value => { ctx.status = value; },
         toast: value => { ctx.error = value; }, esc: s => String(s).replaceAll('<', '&lt;'),
         stopTimer() {}, configureSetupForClassroom() {}, findExistingClassroomSubmissionId: async () => 'existing&submission',
         hasQuizSessionQuestionList: () => false,
-        loadTaxonomyFilters: async () => { throw new Error('Should not load a submitted session'); }
+        loadTaxonomyFilters: async () => {}
     });
     vm.runInContext(`let studentProfile = { sectionId: 's1', admissionNo: '001', studentName: 'Student' }; let recentSessions = []; let session = null; let openingSession = false; let loadedQuestions = []; let quiz = null; let currentIndex = 0; let hasSubmittedCurrentSession = false;`, ctx);
     const a = source.indexOf('async function loadStudentSessions()');
     const b = source.indexOf('function submissionsUrl(', a);
+    vm.runInContext(source.slice(source.indexOf('function isPracticeDraft('), source.indexOf('function canSavePracticeProgress(')), ctx);
     vm.runInContext(source.slice(a, b), ctx);
-    return { ctx, node, rows: values => { rows = values.map(([id, data]) => ({ id, data: () => data })); }, selected: data => { selected = { exists: () => !!data, data: () => data }; } };
+    return { ctx, node, rows: values => { rows = values.map(([id, data]) => ({ id, data: () => ({ ...data, dueAt: { toMillis: () => 4102444800000 - (data.createdAt?.toMillis?.() || data.createdDate || 0) } }) })); }, submissions: values => { submissionRows = values.map(([id, data]) => ({ id, data: () => data })); }, selected: data => { selected = { exists: () => !!data, data: () => ({ ...data, dueAt: { toMillis: () => 4102444800000 } }) }; } };
 }
-test('dashboard lists only enabled unarchived sessions, newest first, preserving admission number', async () => {
+test('dashboard lists only enabled unarchived pending sessions by due date, preserving admission number', async () => {
     const h = setup();
     h.rows([
         ['old', { classEnabled: true, createdDate: 1 }],
@@ -43,10 +45,24 @@ test('dashboard lists only enabled unarchived sessions, newest first, preserving
     assert.match(h.node('dashboardSection').textContent, /001/);
     assert.equal(h.node('refreshSessionsBtn').disabled, false);
 });
+test('saved practice stays pending and appears under resume while completed sessions are excluded', async () => {
+    const h = setup();
+    h.rows([['practice', { classEnabled: true }], ['completed', { classEnabled: true }]]);
+    h.submissions([
+        ['draft-id', { classroomId: 'practice', practiceProgress: true, status: 'paused', currentIndex: 2, questionCount: 10, quizSessionLabel: 'Reading Practice' }],
+        ['completed-id', { classroomId: 'completed' }]
+    ]);
+    await h.ctx.loadStudentSessions();
+    assert.deepEqual(Array.from(vm.runInContext('recentSessions.map(s => s.classroomId)', h.ctx)), ['practice']);
+    assert.equal(h.node('savedPracticeSection').hidden, false);
+    assert.match(h.node('savedPracticeList').innerHTML, /Question 3 of 10/);
+    assert.match(h.node('savedPracticeList').innerHTML, /Resume Practice/);
+    assert.doesNotMatch(h.node('savedPracticeList').innerHTML, /completed/);
+});
 test('dashboard shows an empty state', async () => {
     const h = setup();
     await h.ctx.loadStudentSessions();
-    assert.match(h.node('sessionList').innerHTML, /No active quiz sessions/);
+    assert.match(h.node('sessionList').innerHTML, /No pending quiz sessions/);
 });
 test('opening refuses another section, disabled and archived sessions', async () => {
     for (const data of [{ sectionId: 'other', classEnabled: true }, { sectionId: 's1', classEnabled: false }, { sectionId: 's1', classEnabled: true, archived: true }]) {

@@ -10,6 +10,33 @@ service cloud.firestore {
       return request.auth != null && profile().active == true
         && profile().authUid == request.auth.uid;
     }
+    function submissionOwner(data) {
+      return data.authUid == request.auth.uid
+        && data.email == request.auth.token.email
+        && data.studentKey == profile().studentKey
+        && data.sectionId == profile().sectionId
+        && data.admissionNo == profile().admissionNo
+        && data.answers is list && data.questionCount is int;
+    }
+    function submissionClassroom(data) {
+      let classroom = get(/databases/$(database)/documents/classrooms/$(data.classroomId)).data;
+      return classroom.sectionId == profile().sectionId
+        && classroom.classEnabled == true && classroom.get('archived', false) != true;
+    }
+    function practiceDraft(data) {
+      return data.get('practiceProgress', false) == true
+        && data.get('status', '') in ['in_progress', 'paused'];
+    }
+    function validPracticeDraft(data) {
+      let classroom = get(/databases/$(database)/documents/classrooms/$(data.classroomId)).data;
+      return practiceDraft(data)
+        && classroom.get('mode', '') in ['practice', 'reading_practice', 'writing_practice']
+        && data.progressVersion == 1 && data.practiceState is string
+        && data.practiceState.size() < 900000
+        && data.questionCount > 0 && data.answers.size() == data.questionCount
+        && data.currentIndex is int && data.currentIndex >= 0 && data.currentIndex < data.questionCount
+        && data.updatedAtMillis is number;
+    }
     match /studentProfiles/{uid} {
       allow get: if request.auth != null && request.auth.uid == uid;
       allow list, write: if false;
@@ -37,17 +64,20 @@ service cloud.firestore {
       // Also permits the student's historical submissions without authUid.
       allow read: if activeStudent() && resource.data.studentKey == profile().studentKey;
       allow create: if activeStudent()
-        && request.resource.data.authUid == request.auth.uid
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.studentKey == profile().studentKey
-        && request.resource.data.sectionId == profile().sectionId
-        && request.resource.data.admissionNo == profile().admissionNo
-        && request.resource.data.answers is list
-        && request.resource.data.questionCount is int
-        && get(/databases/$(database)/documents/classrooms/$(request.resource.data.classroomId)).data.sectionId == profile().sectionId
-        && get(/databases/$(database)/documents/classrooms/$(request.resource.data.classroomId)).data.classEnabled == true
-        && get(/databases/$(database)/documents/classrooms/$(request.resource.data.classroomId)).data.get('archived', false) != true;
-      allow update, delete: if false;
+        && submissionOwner(request.resource.data) && submissionClassroom(request.resource.data)
+        && (!request.resource.data.get('practiceProgress', false) || validPracticeDraft(request.resource.data));
+      // Only unfinished practice can change; completed and historical submissions remain immutable.
+      allow update: if activeStudent() && practiceDraft(resource.data)
+        && resource.data.authUid == request.auth.uid
+        && submissionOwner(request.resource.data) && submissionClassroom(request.resource.data)
+        && request.resource.data.authUid == resource.data.authUid
+        && request.resource.data.studentKey == resource.data.studentKey
+        && request.resource.data.classroomId == resource.data.classroomId
+        && (validPracticeDraft(request.resource.data)
+          || (request.resource.data.get('practiceProgress', false) == false
+            && request.resource.data.submittedAt is timestamp
+            && request.resource.data.submittedAtMillis is number));
+      allow delete: if false;
     }
   }
 }

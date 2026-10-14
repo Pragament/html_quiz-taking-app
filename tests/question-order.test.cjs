@@ -23,6 +23,7 @@ function setup({ list = false, ai = false, mode = 'practice' } = {}) {
         shouldShowAudioQuizSettings: () => false,
         shuffle: items => { ctx.shuffleCalls = (ctx.shuffleCalls || 0) + 1; return [...items].reverse(); },
         emptyStudentPerformanceMemory: () => ({}), getQuizFilters: () => ({}),
+        canSavePracticeProgress: () => false,
         startTimer() {}, setExplanationCollapsed() {}, showOnly() {}, setStatus() {}, renderSelectionMemory() {}, renderQuiz() {},
         applyAnswerToPerformanceMemory() { ctx.memoryUpdated = true; },
         reorderRemainingQuestions: async () => { ctx.reordered = true; }
