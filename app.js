@@ -59,7 +59,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.14.6';
+const APP_VERSION = '2026.10.14.7';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -649,7 +649,7 @@ async function openQuizSession(classroomId) {
             const detailUrl = `submission.html?${new URLSearchParams({ id: existingSubmissionId })}`;
             els.questionLoadSummary.innerHTML = `You have already submitted this quiz session. <a href="${esc(detailUrl)}">View your submission</a> to review your answers.`;
             setStatus('Already submitted for this quiz session');
-        } else if (hasQuizSessionQuestionList()) {
+        } else if (hasQuizSessionQuestionList() || hasClassroomTaxonomyScope()) {
             await loadPublishedQuestions();
         } else {
             await loadTaxonomyFilters();
@@ -666,10 +666,11 @@ function submissionsUrl(options = {}) {
 
 function configureSetupForClassroom() {
     const hasClassroomList = !!session?.classroom?.questionBankListId;
+    const hasLockedTaxonomyScope = hasClassroomTaxonomyScope();
     const showSettings = shouldShowQuizSettings();
     const showAudioSettings = shouldShowAudioQuizSettings();
     const showPracticeSettings = shouldShowPracticeQuizSettings();
-    els.quizFiltersGroup.hidden = hasClassroomList;
+    els.quizFiltersGroup.hidden = hasClassroomList || hasLockedTaxonomyScope;
     els.quizSettingsGroup.hidden = !showSettings;
     els.instantFeedbackSetting.hidden = !showPracticeSettings;
     els.speakerButtonSetting.hidden = !showAudioSettings;
@@ -679,12 +680,14 @@ function configureSetupForClassroom() {
     els.translatedShortAnswerSetting.hidden = !showPracticeSettings;
     els.voiceSetting.hidden = !showAudioSettings;
     els.voiceSpeedSetting.hidden = !showAudioSettings;
-    els.quizFilterControls.hidden = hasClassroomList && !showSettings;
-    $('loadQuestionsBtn').hidden = hasClassroomList;
+    els.quizFilterControls.hidden = (hasClassroomList || hasLockedTaxonomyScope) && !showSettings;
+    $('loadQuestionsBtn').hidden = hasClassroomList || hasLockedTaxonomyScope;
     $('loadQuestionsBtn').disabled = false;
     els.startQuizBtn.disabled = true;
     els.questionLoadSummary.textContent = hasClassroomList
         ? 'Loading the teacher-selected quiz session question list...'
+        : hasLockedTaxonomyScope
+            ? 'Loading questions for this quiz session scope...'
         : 'Load questions to see availability.';
 }
 
@@ -702,6 +705,20 @@ function shouldShowAudioQuizSettings() {
 
 function shouldShowPracticeQuizSettings() {
     return ['practice', 'reading_practice', 'writing_practice'].includes(sessionMode());
+}
+
+function classroomTaxonomyScope() {
+    const classroom = session?.classroom || {};
+    return {
+        classId: String(classroom.classId || '').trim(),
+        subjectId: String(classroom.subjectId || '').trim(),
+        chapterId: String(classroom.chapterId || '').trim()
+    };
+}
+
+function hasClassroomTaxonomyScope() {
+    const scope = classroomTaxonomyScope();
+    return !!(scope.classId && scope.subjectId && scope.chapterId);
 }
 
 async function loadTaxonomyFilters() {
@@ -789,7 +806,7 @@ async function loadPublishedQuestions() {
             loadedQuestions = applyRandomTypeCounts(difficultyQuestions, session.classroom.randomQuestionTypeCounts);
             els.questionLoadSummary.textContent = classroomListSummary(listQuestions, difficultyQuestions, loadedQuestions, session.classroom.randomQuestionTypeCounts, difficulty);
         } else {
-            setStatus('Loading published questions...');
+            setStatus(hasClassroomTaxonomyScope() ? 'Loading questions for this quiz session...' : 'Loading published questions...');
             if (!taxonomyItems.length) await loadTaxonomyFilters();
             const filters = getQuizFilters();
             if (!filters.classId) {
@@ -806,6 +823,7 @@ async function loadPublishedQuestions() {
                 .filter(q => matchesQuizFilters(q, filters));
             const requested = Number($('questionCountInput').value || 10);
             const filterSummary = [
+                taxonomyScopeSummary(filters),
                 filters.verifiedOnly ? 'staff verified' : '',
                 filters.explanationOnly ? 'with explanations' : '',
                 filters.translationOnly ? 'with translations' : ''
@@ -891,9 +909,10 @@ async function loadQuestionsFromList(listId) {
 }
 
 function getQuizFilters() {
-    const classId = $('classFilter').value;
-    const subjectId = $('subjectFilter').value;
-    const chapterId = $('chapterFilter').value;
+    const lockedScope = hasClassroomTaxonomyScope() ? classroomTaxonomyScope() : {};
+    const classId = lockedScope.classId || $('classFilter').value;
+    const subjectId = lockedScope.subjectId || $('subjectFilter').value;
+    const chapterId = lockedScope.chapterId || $('chapterFilter').value;
     return {
         classId,
         subjectId,
@@ -932,6 +951,15 @@ function selectedQuestionTypes() {
 
 function taxonomyLabel(id) {
     return id ? taxonomyById.get(id)?.label || '' : '';
+}
+
+function taxonomyScopeSummary(filters) {
+    const labels = [
+        filters.className || filters.classId,
+        filters.subject || filters.subjectId,
+        filters.chapter || filters.chapterId
+    ].filter(Boolean);
+    return labels.length ? `for ${labels.join(' / ')}` : '';
 }
 
 function validExplanationUrl(value) {
