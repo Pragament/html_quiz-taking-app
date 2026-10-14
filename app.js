@@ -100,6 +100,8 @@ const els = {
     explanationFramePanel: $('explanationFramePanel'),
     explanationFrame: $('explanationFrame'),
     explanationOpenLink: $('explanationOpenLink'),
+    explanationToggleBtn: $('explanationToggleBtn'),
+    explanationResizer: $('explanationResizer'),
     progressSummary: $('progressSummary'),
     selectionMemoryPanel: $('selectionMemoryPanel'),
     selectionMemoryDetails: $('selectionMemoryDetails'),
@@ -125,6 +127,10 @@ initializeSpeechControls();
 preloadOfflineAiModels();
 onAuthStateChanged(auth, handleStudentAuth);
 function bindEvents() {
+    els.explanationToggleBtn.addEventListener('click', () => {
+        setExplanationCollapsed(els.explanationToggleBtn.getAttribute('aria-expanded') === 'true');
+    });
+    bindExplanationResize();
     $('refreshSessionsBtn').addEventListener('click', loadStudentSessions);
     $('sessionList').addEventListener('click', event => {
         const button = event.target.closest('[data-session-id]');
@@ -1410,6 +1416,7 @@ async function startQuiz() {
     };
     currentIndex = 0;
     startTimer();
+    setExplanationCollapsed(false);
     showOnly('quiz');
     setStatus('Quiz started. Questions are now local until submit.');
     renderSelectionMemory();
@@ -1826,16 +1833,70 @@ function renderExplanationFrame(explanationUrl) {
     if (!shouldShowPracticeQuizSettings() || !validExplanationUrl(explanationUrl)) {
         els.quizPanel.classList.remove('has-explanation');
         els.explanationFramePanel.hidden = true;
+        els.explanationResizer.hidden = true;
         els.explanationFrame.removeAttribute('src');
         els.explanationOpenLink.href = '#';
         return;
     }
     els.quizPanel.classList.add('has-explanation');
     els.explanationFramePanel.hidden = false;
+    els.explanationResizer.hidden = els.explanationFrame.hidden;
     if (els.explanationFrame.getAttribute('src') !== explanationUrl) {
         els.explanationFrame.src = explanationUrl;
     }
     els.explanationOpenLink.href = explanationUrl;
+}
+
+function setExplanationCollapsed(collapsed) {
+    els.quizPanel.classList.toggle('explanation-collapsed', collapsed);
+    els.explanationFrame.hidden = collapsed;
+    els.explanationToggleBtn.textContent = collapsed ? 'Expand' : 'Collapse';
+    els.explanationToggleBtn.setAttribute('aria-expanded', String(!collapsed));
+    els.explanationResizer.hidden = collapsed || els.explanationFramePanel.hidden;
+}
+
+function setExplanationWidth(percent) {
+    const width = Math.max(25, Math.min(70, percent));
+    els.quizPanel.style.setProperty('--explanation-width', `${width}%`);
+    els.explanationResizer.setAttribute('aria-valuenow', String(Math.round(width)));
+}
+
+function bindExplanationResize() {
+    const handle = els.explanationResizer;
+    let pointerId = null;
+    const resize = event => {
+        const panel = els.quizPanel;
+        const bounds = panel.getBoundingClientRect();
+        const style = getComputedStyle(panel);
+        const left = bounds.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+        const width = panel.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        const min = 240;
+        const max = width - 240 - 32;
+        setExplanationWidth(Math.max(min, Math.min(max, event.clientX - left - 16)) / width * 100);
+    };
+    handle.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        pointerId = event.pointerId;
+        handle.setPointerCapture(pointerId);
+        els.quizPanel.classList.add('resizing-explanation');
+        event.preventDefault();
+    });
+    handle.addEventListener('pointermove', event => {
+        if (event.pointerId === pointerId) resize(event);
+    });
+    const stop = () => {
+        pointerId = null;
+        els.quizPanel.classList.remove('resizing-explanation');
+    };
+    handle.addEventListener('pointerup', stop);
+    handle.addEventListener('pointercancel', stop);
+    handle.addEventListener('lostpointercapture', stop);
+    handle.addEventListener('keydown', event => {
+        const width = Number(handle.getAttribute('aria-valuenow'));
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();
+        setExplanationWidth(event.key === 'Home' ? 25 : event.key === 'End' ? 70 : width + (event.key === 'ArrowRight' ? 2 : -2));
+    });
 }
 
 function renderInstantFeedbackPanel() {
