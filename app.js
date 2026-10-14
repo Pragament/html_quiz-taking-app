@@ -59,7 +59,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.14.4';
+const APP_VERSION = '2026.10.14.6';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -84,6 +84,14 @@ const els = {
     quizFilterControls: $('quizFilterControls'),
     quizFiltersGroup: $('quizFiltersGroup'),
     quizSettingsGroup: $('quizSettingsGroup'),
+    instantFeedbackSetting: $('instantFeedbackSetting'),
+    speakerButtonSetting: $('speakerButtonSetting'),
+    listenRespondSetting: $('listenRespondSetting'),
+    fibChoiceBankSetting: $('fibChoiceBankSetting'),
+    shortAnswerWordBankSetting: $('shortAnswerWordBankSetting'),
+    translatedShortAnswerSetting: $('translatedShortAnswerSetting'),
+    voiceSetting: $('voiceSetting'),
+    voiceSpeedSetting: $('voiceSpeedSetting'),
     subjectFilterField: $('subjectFilterField'),
     chapterFilterField: $('chapterFilterField'),
     questionLoadSummary: $('questionLoadSummary'),
@@ -659,8 +667,18 @@ function submissionsUrl(options = {}) {
 function configureSetupForClassroom() {
     const hasClassroomList = !!session?.classroom?.questionBankListId;
     const showSettings = shouldShowQuizSettings();
+    const showAudioSettings = shouldShowAudioQuizSettings();
+    const showPracticeSettings = shouldShowPracticeQuizSettings();
     els.quizFiltersGroup.hidden = hasClassroomList;
     els.quizSettingsGroup.hidden = !showSettings;
+    els.instantFeedbackSetting.hidden = !showPracticeSettings;
+    els.speakerButtonSetting.hidden = !showAudioSettings;
+    els.listenRespondSetting.hidden = !showAudioSettings;
+    els.fibChoiceBankSetting.hidden = !showPracticeSettings;
+    els.shortAnswerWordBankSetting.hidden = !showPracticeSettings;
+    els.translatedShortAnswerSetting.hidden = !showPracticeSettings;
+    els.voiceSetting.hidden = !showAudioSettings;
+    els.voiceSpeedSetting.hidden = !showAudioSettings;
     els.quizFilterControls.hidden = hasClassroomList && !showSettings;
     $('loadQuestionsBtn').hidden = hasClassroomList;
     $('loadQuestionsBtn').disabled = false;
@@ -670,8 +688,20 @@ function configureSetupForClassroom() {
         : 'Load questions to see availability.';
 }
 
+function sessionMode() {
+    return String(session?.classroom?.mode || '').trim();
+}
+
 function shouldShowQuizSettings() {
-    return ['practice', 'reading_practice', 'writing_practice'].includes(String(session?.classroom?.mode || '').trim());
+    return ['quiz', 'practice', 'wpt', 'rpt', 'reading_practice', 'writing_practice'].includes(sessionMode());
+}
+
+function shouldShowAudioQuizSettings() {
+    return ['quiz', 'practice', 'wpt', 'rpt', 'reading_practice', 'writing_practice'].includes(sessionMode());
+}
+
+function shouldShowPracticeQuizSettings() {
+    return ['practice', 'reading_practice', 'writing_practice'].includes(sessionMode());
 }
 
 async function loadTaxonomyFilters() {
@@ -1289,16 +1319,18 @@ async function startQuiz() {
         ? loadedQuestions
         : await selectAdaptiveQuestions(loadedQuestions, Math.min(count, loadedQuestions.length));
     const selected = groupQuestionsByExplanationUrl(selectedQuestions).map(snapshotQuestion);
+    const audioSettings = shouldShowAudioQuizSettings();
+    const practiceSettings = shouldShowPracticeQuizSettings();
     quiz = {
         questions: selected,
         answers: selected.map(q => emptyAnswer(q)),
-        instantFeedback: shouldShowQuizSettings() && $('instantFeedbackFilter').checked,
-        showSpeaker: shouldShowQuizSettings() && $('speakerButtonFilter').checked,
-        listenRespond: shouldShowQuizSettings() && $('listenRespondFilter').checked,
-        fibChoiceBank: shouldShowQuizSettings() && $('fibChoiceBankFilter').checked,
-        shortAnswerWordBank: shouldShowQuizSettings() && $('shortAnswerWordBankFilter').checked,
-        showTranslatedShortAnswer: shouldShowQuizSettings() && $('translatedShortAnswerFilter').checked,
-        promptRevealed: selected.map(() => !(shouldShowQuizSettings() && $('listenRespondFilter').checked)),
+        instantFeedback: practiceSettings && $('instantFeedbackFilter').checked,
+        showSpeaker: audioSettings && $('speakerButtonFilter').checked,
+        listenRespond: audioSettings && $('listenRespondFilter').checked,
+        fibChoiceBank: practiceSettings && $('fibChoiceBankFilter').checked,
+        shortAnswerWordBank: practiceSettings && $('shortAnswerWordBankFilter').checked,
+        showTranslatedShortAnswer: practiceSettings && $('translatedShortAnswerFilter').checked,
+        promptRevealed: selected.map(() => !(audioSettings && $('listenRespondFilter').checked)),
         translationChoices: selected.map(() => ''),
         feedback: selected.map(() => null),
         feedbackShown: selected.map(() => false),
@@ -1372,12 +1404,26 @@ function questionTranslationLanguages(question) {
     });
 }
 
-function currentTranslationLanguage() {
-    return quiz?.translationChoices?.[currentIndex] || '';
+function sanitizeTranslationLanguage(question, language) {
+    return language && questionTranslationLanguages(question).includes(language) ? language : '';
+}
+
+function currentTranslationLanguage(question = null) {
+    const language = quiz?.translationChoices?.[currentIndex] || '';
+    return question ? sanitizeTranslationLanguage(question, language) : language;
+}
+
+function ensureQuestionTranslationSelection(question) {
+    if (!quiz) return;
+    const language = currentTranslationLanguage(question);
+    if (quiz.translationChoices[currentIndex] !== language) {
+        quiz.translationChoices[currentIndex] = language;
+        if (quiz.answers?.[currentIndex]) quiz.answers[currentIndex].translationLanguage = language;
+    }
 }
 
 function currentTranslation(question) {
-    const language = currentTranslationLanguage();
+    const language = currentTranslationLanguage(question);
     return questionTranslation(question, language);
 }
 
@@ -1386,15 +1432,15 @@ function questionTranslation(question, language) {
 }
 
 function questionDisplayPrompt(question) {
-    return questionPromptText(question, currentTranslationLanguage());
+    return questionPromptText(question, currentTranslationLanguage(question));
 }
 
 function questionDisplayOptions(question) {
-    return questionOptionTexts(question, currentTranslationLanguage());
+    return questionOptionTexts(question, currentTranslationLanguage(question));
 }
 
 function questionDisplayShortAnswer(question) {
-    return questionShortAnswerText(question, currentTranslationLanguage());
+    return questionShortAnswerText(question, currentTranslationLanguage(question));
 }
 
 function questionPromptText(question, language = '') {
@@ -1411,7 +1457,7 @@ function questionShortAnswerText(question, language = '') {
 }
 
 function currentShortAnswerWordOptions(question) {
-    const language = currentTranslationLanguage();
+    const language = currentTranslationLanguage(question);
     return language && question.shortAnswerTranslationWordOptions?.[language]?.length
         ? question.shortAnswerTranslationWordOptions[language]
         : question.shortAnswerWordOptions || [];
@@ -1457,6 +1503,7 @@ function emptyAnswer(question) {
 function renderQuiz() {
     const question = quiz.questions[currentIndex];
     const answer = quiz.answers[currentIndex];
+    ensureQuestionTranslationSelection(question);
     renderExplanationFrame(question.explanationUrl);
     const score = instantFeedbackScore();
     const scoreSummary = quiz.instantFeedback && score.max ? ` · Score ${score.scored}/${score.max}` : '';
@@ -1512,7 +1559,7 @@ function renderQuestionAudioControls(question) {
 function renderTranslationControl(question) {
     const languages = questionTranslationLanguages(question);
     if (!languages.length) return '';
-    const selected = currentTranslationLanguage();
+    const selected = currentTranslationLanguage(question);
     return `
         <label class="compact-field translation-field">
             <span>Translation</span>
@@ -1526,7 +1573,7 @@ function renderTranslationControl(question) {
 
 function translatedShortAnswerPanel(question) {
     if (!quiz.showTranslatedShortAnswer || question.type !== 'short_answer') return '';
-    const language = currentTranslationLanguage();
+    const language = currentTranslationLanguage(question);
     const answer = language ? questionTranslation(question, language)?.answer || '' : '';
     if (!answer) return '';
     return `
@@ -1663,10 +1710,11 @@ function updateShortAnswerFromChoices(question, answer) {
 function setQuestionTranslation(language) {
     if (!quiz) return;
     saveCurrentAnswer();
-    quiz.translationChoices[currentIndex] = language || '';
     const question = quiz.questions[currentIndex];
+    const selectedLanguage = sanitizeTranslationLanguage(question, language);
+    quiz.translationChoices[currentIndex] = selectedLanguage;
     const answer = quiz.answers[currentIndex];
-    answer.translationLanguage = language || '';
+    answer.translationLanguage = selectedLanguage;
     if (question.type === 'short_answer') {
         answer.shortAnswerChoiceIndices = [];
         answer.shortAnswerInsertIndex = 0;
@@ -2008,7 +2056,7 @@ function saveCurrentAnswer() {
     if (quiz.instantFeedback && quiz.feedbackShown[currentIndex]) return;
     const question = quiz.questions[currentIndex];
     const answer = quiz.answers[currentIndex];
-    answer.translationLanguage = quiz.translationChoices?.[currentIndex] || '';
+    answer.translationLanguage = currentTranslationLanguage(question);
     if (question.type === 'mcq') {
         answer.selectedOptions = Array.from(document.querySelectorAll('.mcq-answer:checked')).map(input => Number(input.value));
     } else if (question.type === 'true_false') {
@@ -2136,7 +2184,7 @@ function submissionDocId() {
 }
 
 function gradeAnswer(question, answer) {
-    const translationLanguage = answer.translationLanguage || '';
+    const translationLanguage = sanitizeTranslationLanguage(question, answer.translationLanguage || '');
     const base = {
         questionId: question.id,
         type: question.type,
@@ -2190,7 +2238,7 @@ function gradeAnswer(question, answer) {
 async function gradeAnswerWithOfflineAi(question, answer) {
     const graded = gradeAnswer(question, answer);
     if (question.type !== 'short_answer' || !answer.shortAnswer || !offlineAi.embedPipe) return graded;
-    const translationLanguage = answer.translationLanguage || '';
+    const translationLanguage = sanitizeTranslationLanguage(question, answer.translationLanguage || '');
     const semanticScore = await offlineSemanticScore(correctAnswerText(question, translationLanguage), answer.shortAnswer);
     graded.aiReview = assessShortAnswerOffline(question, answer.shortAnswer || '', semanticScore, translationLanguage);
     graded.isCorrect = graded.aiReview.maxMarks > 0 ? graded.aiReview.marks >= graded.aiReview.maxMarks * 0.9 : null;

@@ -6,13 +6,13 @@
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
-    <link rel="stylesheet" href="styles.css?v=2026.10.14.4" />
+    <link rel="stylesheet" href="styles.css?v=2026.10.14.6" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
-    <div class="app-version-badge">v2026.10.14.4</div>
+    <div class="app-version-badge">v2026.10.14.6</div>
     <header class="topbar" id="appHeader"></header>
 
     <main class="app-shell">
@@ -105,37 +105,37 @@
                 </fieldset>
                 <fieldset class="setup-group" id="quizSettingsGroup">
                     <legend>Quiz Settings</legend>
-                    <label class="field checkbox-field">
+                    <label class="field checkbox-field" id="instantFeedbackSetting">
                         <input id="instantFeedbackFilter" type="checkbox" checked />
                         <span>Instant feedback after each question</span>
                     </label>
-                    <label class="field checkbox-field">
+                    <label class="field checkbox-field" id="speakerButtonSetting">
                         <input id="speakerButtonFilter" type="checkbox" checked />
                         <span>Show speaker before question text</span>
                     </label>
-                    <label class="field checkbox-field">
+                    <label class="field checkbox-field" id="listenRespondSetting">
                         <input id="listenRespondFilter" type="checkbox" />
                         <span>Listen and respond</span>
                     </label>
-                    <label class="field checkbox-field">
+                    <label class="field checkbox-field" id="fibChoiceBankSetting">
                         <input id="fibChoiceBankFilter" type="checkbox" checked />
                         <span>Clickable answer bank for multi-blank fill in the blanks</span>
                     </label>
-                    <label class="field checkbox-field">
+                    <label class="field checkbox-field" id="shortAnswerWordBankSetting">
                         <input id="shortAnswerWordBankFilter" type="checkbox" checked />
                         <span>Clickable word bank for short answers</span>
                     </label>
-                    <label class="field checkbox-field">
+                    <label class="field checkbox-field" id="translatedShortAnswerSetting">
                         <input id="translatedShortAnswerFilter" type="checkbox" checked />
                         <span>Option to view translated short answer</span>
                     </label>
-                    <label class="field">
+                    <label class="field" id="voiceSetting">
                         <span>Voice</span>
                         <select id="voiceSelect">
                             <option value="">System default</option>
                         </select>
                     </label>
-                    <label class="field">
+                    <label class="field" id="voiceSpeedSetting">
                         <span>Speed <strong id="voiceRateValue">1.0x</strong></span>
                         <input id="voiceRateInput" type="range" min="0.6" max="1.4" step="0.1" value="1" />
                     </label>
@@ -200,6 +200,6 @@
     </main>
 
     <div id="toast" class="toast"></div>
-    <script type="module" src="app.js?v=2026.10.14.4"></script>
+    <script type="module" src="app.js?v=2026.10.14.6"></script>
 </body>
 </html>
