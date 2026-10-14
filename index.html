@@ -6,53 +6,26 @@
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
-    <link rel="stylesheet" href="styles.css?v=2026.10.12.2" />
+    <link rel="stylesheet" href="styles.css?v=2026.10.14.3" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
-    <div class="app-version-badge">v2026.10.12.2</div>
-    <header class="topbar">
-        <div>
-            <h1>Quiz Activity</h1>
-            <p id="statusText">Enter your quiz session details to begin</p>
-        </div>
-        <div class="topbar-actions">
-            <button class="step-chip ai-status-chip" id="offlineAiStatus" type="button" aria-expanded="false" aria-controls="offlineAiDetails">Offline AI loading</button>
-            <div class="ai-details-popover" id="offlineAiDetails" hidden></div>
-            <button class="btn" id="tourBtn">Tour</button>
-            <button class="btn" id="viewSubmissionsBtn" hidden>Past Submissions</button>
-            <button class="btn" id="resetBtn" hidden>Exit Quiz</button>
-        </div>
-    </header>
+    <div class="app-version-badge">v2026.10.14.3</div>
+    <header class="topbar" id="appHeader"></header>
 
     <main class="app-shell">
-        <section class="panel login-panel" id="loginView">
-            <div class="section-title">
-                <h2>Student Login</h2>
-                <span class="step-chip">Step 1</span>
-            </div>
-            <div class="form-grid">
-                <label class="field" id="classCodeField">
-                    <span>Quiz Session Code</span>
-                    <input id="classCodeInput" inputmode="numeric" autocomplete="off" placeholder="Enter quiz session code" />
-                </label>
-                <label class="field">
-                    <span>Admission No</span>
-                    <input id="admissionNoInput" autocomplete="off" placeholder="Enter admission number" />
-                </label>
-                <label class="field">
-                    <span>Phone First 6 Digits</span>
-                    <input id="phoneInput" inputmode="numeric" autocomplete="off" maxlength="6" pattern="[0-9]{6}" placeholder="Enter first 6 digits" />
-                </label>
-            </div>
-            <div class="hint-box" id="urlClassroomHint" hidden></div>
-            <div class="hint-box" id="phoneHintBox" hidden></div>
-            <div class="actions">
-                <button class="btn primary" id="verifyBtn">Verify Student</button>
-            </div>
-            <div class="error-box" id="loginError" hidden></div>
+        <div class="quiz-tools" aria-label="Quiz tools">
+            <button class="step-chip ai-status-chip" id="offlineAiStatus" type="button" aria-expanded="false" aria-controls="offlineAiDetails">Offline AI loading</button>
+            <div class="ai-details-popover" id="offlineAiDetails" hidden></div>
+            <button class="btn" id="resetBtn" hidden>Exit Quiz</button>
+        </div>
+        <section class="panel" id="dashboardView" hidden>
+            <div class="section-title"><div><h2 id="dashboardWelcome">Welcome</h2><p id="dashboardSection"></p></div><button class="btn" id="refreshSessionsBtn">Refresh</button></div>
+            <h3>Recent Quiz Sessions</h3>
+            <p>Choose a quiz session to begin.</p>
+            <div id="sessionList" class="session-list" aria-live="polite"></div>
         </section>
 
         <section class="panel setup-panel" id="setupView" hidden>
@@ -64,7 +37,7 @@
                 <span class="step-chip">Step 2</span>
             </div>
             <div class="form-grid" id="quizFilterControls">
-                <fieldset class="setup-group">
+                <fieldset class="setup-group" id="quizFiltersGroup">
                     <legend>Filters</legend>
                     <label class="field" id="classFilterField">
                         <span>Class *</span>
@@ -125,8 +98,12 @@
                         <input id="translationOnlyFilter" type="checkbox" />
                         <span>Only questions with translations</span>
                     </label>
+                    <label class="field checkbox-field">
+                        <input id="verifiedOnlyFilter" type="checkbox" checked />
+                        <span>Only staff verified questions</span>
+                    </label>
                 </fieldset>
-                <fieldset class="setup-group">
+                <fieldset class="setup-group" id="quizSettingsGroup">
                     <legend>Quiz Settings</legend>
                     <label class="field checkbox-field">
                         <input id="instantFeedbackFilter" type="checkbox" checked />
@@ -147,6 +124,10 @@
                     <label class="field checkbox-field">
                         <input id="shortAnswerWordBankFilter" type="checkbox" checked />
                         <span>Clickable word bank for short answers</span>
+                    </label>
+                    <label class="field checkbox-field">
+                        <input id="translatedShortAnswerFilter" type="checkbox" checked />
+                        <span>Option to view translated short answer</span>
                     </label>
                     <label class="field">
                         <span>Voice</span>
@@ -219,6 +200,6 @@
     </main>
 
     <div id="toast" class="toast"></div>
-    <script type="module" src="app.js?v=2026.10.12.2"></script>
+    <script type="module" src="app.js?v=2026.10.14.3"></script>
 </body>
 </html>

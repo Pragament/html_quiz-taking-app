@@ -1,25 +1,18 @@
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { maybePromptGuidedTour } from './tours.js';
+import { initializeHeader, setHeaderStudent } from './header.js';
+import { auth, db, loginUrl } from './firebase.js';
 import {
     collection,
     doc,
     getDoc,
     getDocs,
-    getFirestore,
     query,
     serverTimestamp,
     setDoc,
     where
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const firebaseConfig = {
-    apiKey: 'AIzaSyAYlezFn0tSSQHA-vRnJeBfJ-Om1YlDghk',
-    authDomain: 'eschool-dev-4c6b4.firebaseapp.com',
-    projectId: 'eschool-dev-4c6b4',
-    storageBucket: 'eschool-dev-4c6b4.firebasestorage.app',
-    messagingSenderId: '875648503944',
-    appId: '1:875648503944:web:5df5e950b6215a446f0f3d',
-    measurementId: 'G-E2JHVL7Q4V'
-};
+import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 
 const COLLECTIONS = {
     classrooms: 'classrooms',
@@ -37,8 +30,10 @@ const TYPE_LABELS = {
     short_answer: 'Short Answer'
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+let studentProfile = null;
+let recentSessions = [];
+let openingSession = false;
+let authGeneration = 0;
 
 let session = null;
 let loadedQuestions = [];
@@ -46,13 +41,9 @@ let quiz = null;
 let currentIndex = 0;
 let toastTimer = null;
 let timerInterval = null;
-let tourOptOutSelected = false;
 let hasSubmittedCurrentSession = false;
 let taxonomyItems = [];
 let taxonomyById = new Map();
-let urlClassCode = '';
-let urlClassroomResult = null;
-let shouldShowRecentSubmission = false;
 let speechVoices = [];
 const offlineAi = {
     status: 'idle',
@@ -66,32 +57,16 @@ const offlineAi = {
 };
 
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
-const RECENT_LOGIN_STORAGE_PREFIX = 'quizActivityRecentLogin:';
-const TOUR_OPT_OUT_KEY = 'quizActivityHideGuidedTour';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.12.2';
+const APP_VERSION = '2026.10.14.3';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
-const TOUR_STEPS = [
-    {
-        title: 'Take a Guided Tour?',
-        intro: 'A quick walkthrough can show the main steps before you begin.<label class="intro-opt-out"><input type="checkbox" id="tourOptOutInput"> Do not show this tour again on refresh</label>'
-    },
-    {
-        title: 'Student Login',
-        intro: 'Enter the quiz session code, admission number, and first 6 digits of the registered phone to verify the student.',
-        element: '#loginView'
-    },
-    {
-        title: 'Verify Student',
-        intro: 'After verification, the quiz setup appears. Quiz session question lists load automatically when the teacher has selected one.',
-        element: '#verifyBtn'
-    },
-    {
-        title: 'Past Submissions',
-        intro: 'After verification, a Past Submissions button appears so the student can review previous attempts.'
-    }
-];
+initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
+    if (!document.getElementById('quizView').hidden) return 'quiz';
+    if (!document.getElementById('resultView').hidden) return 'result';
+    if (!document.getElementById('setupView').hidden) return 'setup';
+    return 'dashboard';
+} });
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -99,20 +74,16 @@ const els = {
     offlineAiStatus: $('offlineAiStatus'),
     offlineAiDetails: $('offlineAiDetails'),
     resetBtn: $('resetBtn'),
-    tourBtn: $('tourBtn'),
     viewSubmissionsBtn: $('viewSubmissionsBtn'),
-    classCodeField: $('classCodeField'),
-    classCodeInput: $('classCodeInput'),
-    loginView: $('loginView'),
+    dashboardView: $('dashboardView'),
     setupView: $('setupView'),
     quizView: $('quizView'),
     resultView: $('resultView'),
-    loginError: $('loginError'),
-    urlClassroomHint: $('urlClassroomHint'),
-    phoneHintBox: $('phoneHintBox'),
     welcomeTitle: $('welcomeTitle'),
     classroomLabel: $('classroomLabel'),
     quizFilterControls: $('quizFilterControls'),
+    quizFiltersGroup: $('quizFiltersGroup'),
+    quizSettingsGroup: $('quizSettingsGroup'),
     subjectFilterField: $('subjectFilterField'),
     chapterFilterField: $('chapterFilterField'),
     questionLoadSummary: $('questionLoadSummary'),
@@ -144,26 +115,18 @@ if (window.mermaid) {
 bindEvents();
 initializeSpeechControls();
 preloadOfflineAiModels();
-initializeClassroomFromUrl();
-maybePromptGuidedTour();
-
+onAuthStateChanged(auth, handleStudentAuth);
 function bindEvents() {
-    $('verifyBtn').addEventListener('click', verifyStudent);
+    $('refreshSessionsBtn').addEventListener('click', loadStudentSessions);
+    $('sessionList').addEventListener('click', event => {
+        const button = event.target.closest('[data-session-id]');
+        if (button) openQuizSession(button.dataset.sessionId);
+    });
     $('loadQuestionsBtn').addEventListener('click', loadPublishedQuestions);
     $('startQuizBtn').addEventListener('click', startQuiz);
     $('nextQuestionBtn').addEventListener('click', advanceQuestion);
     els.offlineAiStatus.addEventListener('click', toggleOfflineAiDetails);
-    $('phoneInput').addEventListener('input', sanitizePhonePrefixInput);
     els.resetBtn.addEventListener('click', resetApp);
-    els.tourBtn.addEventListener('click', () => startGuidedTour());
-    els.viewSubmissionsBtn.addEventListener('click', () => {
-        window.location.href = submissionsUrl();
-    });
-    document.addEventListener('change', event => {
-        if (event.target.id === 'tourOptOutInput') {
-            tourOptOutSelected = event.target.checked;
-        }
-    });
     document.addEventListener('click', event => {
         if (event.target.closest('[data-offline-ai-retry]')) {
             retryOfflineAiModels();
@@ -222,7 +185,7 @@ function bindEvents() {
             setQuestionTranslation(event.target.value);
         }
     });
-    ['difficultyFilter', 'questionCountInput', 'explanationOnlyFilter', 'translationOnlyFilter'].forEach(id => {
+    ['difficultyFilter', 'questionCountInput', 'explanationOnlyFilter', 'translationOnlyFilter', 'verifiedOnlyFilter'].forEach(id => {
         $(id).addEventListener('input', resetLoadedQuestionSelection);
         $(id).addEventListener('change', resetLoadedQuestionSelection);
     });
@@ -552,203 +515,163 @@ function offlineAiDetailsCopy() {
     };
 }
 
-function maybePromptGuidedTour() {
-    if (localStorage.getItem(TOUR_OPT_OUT_KEY) === 'true') return;
-    startGuidedTour();
-}
-
-function startGuidedTour() {
-    if (!window.introJs) return;
-    tourOptOutSelected = false;
-    const tour = window.introJs.tour ? window.introJs.tour() : window.introJs();
-    tour.setOptions({
-        steps: TOUR_STEPS,
-        showProgress: true,
-        showBullets: false,
-        nextLabel: 'Next',
-        prevLabel: 'Back',
-        doneLabel: 'Done',
-        exitOnOverlayClick: true,
-        tooltipRenderAsHtml: true
-    });
-    tour.oncomplete(saveTourPreference);
-    tour.onexit(saveTourPreference);
-    tour.start();
-}
-
-function saveTourPreference() {
-    if (tourOptOutSelected) localStorage.setItem(TOUR_OPT_OUT_KEY, 'true');
-}
-
-async function verifyStudent() {
-    showLoginError('');
-    const classCode = els.classCodeInput.value.trim();
-    const admissionNo = $('admissionNoInput').value.trim();
-    const phonePrefix = phonePrefixValue($('phoneInput').value);
-    $('phoneInput').value = phonePrefix;
-    if (!classCode || !admissionNo || !phonePrefix) {
-        showLoginError('Quiz session code, admission number, and first 6 phone digits are required.');
-        return;
-    }
-    if (phonePrefix.length !== 6) {
-        showLoginError('Enter exactly the first 6 digits of the registered phone.');
-        return;
-    }
-
+async function handleStudentAuth(user) {
+    const generation = ++authGeneration;
+    studentProfile = null;
+    session = null;
+    recentSessions = [];
+    loadedQuestions = [];
+    quiz = null;
+    stopTimer();
+    window.speechSynthesis?.cancel();
+    hasSubmittedCurrentSession = false;
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    els.resetBtn.hidden = true;
+    els.viewSubmissionsBtn.hidden = true;
+    $('signOutBtn').hidden = !user;
+    showOnly('loading');
+    if (!user) { window.location.replace(loginUrl()); return; }
+    setStatus('Loading student profile...');
     try {
-        setStatus('Checking quiz session...');
-        const classroomResult = urlClassroomResult?.classroom?.classCode === classCode || urlClassroomResult?.classroomId === classCode
-            ? urlClassroomResult
-            : await findClassroom(classCode);
-        if (!classroomResult) {
-            showLoginError(`No quiz session found for code ${classCode}.`);
-            return;
+        const snap = await getDoc(doc(db, 'studentProfiles', user.uid));
+        if (generation !== authGeneration) return;
+        const profile = snap.exists() ? snap.data() : null;
+        if (!profile || profile.active !== true || !profile.sectionId || !profile.admissionNo
+            || profile.authUid !== user.uid || profile.studentKey !== `${profile.sectionId}_${profile.admissionNo}`) {
+            throw new Error('Your student profile is unavailable or inactive. Contact your school administrator.');
         }
-        const { classroomId, classroom } = classroomResult;
-        if (classroom.classEnabled !== true) {
-            showLoginError('This quiz session is not enabled for student quiz login.');
-            return;
+        studentProfile = { ...profile, authUid: user.uid, email: user.email };
+        setHeaderStudent(studentProfile);
+        $('dashboardWelcome').textContent = `Welcome, ${profile.studentName || 'Student'}`;
+        $('dashboardSection').textContent = `Admission ${profile.admissionNo}`;
+        els.viewSubmissionsBtn.hidden = false;
+        await loadStudentSessions();
+        maybePromptGuidedTour();
+        if (generation !== authGeneration) return;
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('show-recent') === '1') {
+            window.location.href = submissionsUrl({ showRecent: true });
         }
-        if (!classroom.sectionId) {
-            showLoginError('Quiz session is missing sectionId, so student records cannot be verified.');
-            return;
-        }
+    } catch (error) {
+        if (generation !== authGeneration) return;
+        window.location.replace(loginUrl());
+    }
+}
 
-        setStatus('Checking student record...');
-        const studentResult = await findStudent(classroom.sectionId, admissionNo);
-        if (!studentResult) {
-            showLoginError(`No student found for admission number ${admissionNo} in this section.`);
-            return;
-        }
-        const { student } = studentResult;
-        const registeredPhone = normalizePhone(student.phone);
-        const hint = registeredPhone.slice(0, 3);
-        const registeredPhonePrefix = registeredPhone.slice(0, 6);
-        els.phoneHintBox.hidden = false;
-        els.phoneHintBox.textContent = `Registered phone starts with ${hint || '---'}. Enter only the first 6 digits.`;
-        if (registeredPhonePrefix !== phonePrefix) {
-            showLoginError('Phone digits did not match the registered phone.');
-            return;
-        }
+async function loadStudentSessions() {
+    if (!studentProfile) return;
+    const profile = studentProfile;
+    showOnly('dashboard');
+    els.resetBtn.hidden = true;
+    $('sessionList').textContent = 'Loading quiz sessions...';
+    $('refreshSessionsBtn').disabled = true;
+    try {
+        const [snap, submissionsSnap] = await Promise.all([
+            getDocs(query(collection(db, COLLECTIONS.classrooms), where('sectionId', '==', profile.sectionId))),
+            getDocs(query(collection(db, COLLECTIONS.submissions), where('studentKey', '==', profile.studentKey)))
+        ]);
+        const submittedClassrooms = new Set(submissionsSnap.docs.map(item => item.data().classroomId));
+        if (studentProfile !== profile) return;
+        recentSessions = snap.docs.map(item => ({ classroomId: item.id, classroom: item.data() }))
+            .filter(item => item.classroom.classEnabled === true && item.classroom.archived !== true)
+            .sort((a, b) => sessionCreatedMillis(b.classroom) - sessionCreatedMillis(a.classroom));
+        $('dashboardSection').textContent = `${recentSessions[0]?.classroom.sectionName || profile.sectionId} · Admission ${profile.admissionNo}`;
+        $('sessionList').innerHTML = recentSessions.length ? recentSessions.map(({ classroomId, classroom }) => {
+            const date = sessionCreatedMillis(classroom);
+            const status = quizSessionStatus(classroom, submittedClassrooms.has(classroomId));
+            return `<button type="button" class="session-card ${status.className}" data-session-id="${esc(classroomId)}"><strong>${esc(classroom.className || classroom.classCode || classroomId)}</strong>${status.label ? `<span class="session-status">${esc(status.label)}</span>` : ''}<span>${esc(classroom.sectionName || profile.sectionId)}${date ? ` · ${esc(new Date(date).toLocaleString())}` : ''}</span><span class="session-dates"><span>Start: ${esc(sessionScheduleDate(classroom.startAt, 'Not scheduled'))}</span><span>Due: ${esc(sessionScheduleDate(classroom.dueAt, 'No due date'))}</span></span><span>Take Quiz →</span></button>`;
+        }).join('') : '<div class="quiz-summary">No active quiz sessions are available for your section yet.</div>';
+        setStatus('Choose a quiz session to begin');
+    } catch (error) {
+        if (studentProfile !== profile) return;
+        $('sessionList').textContent = error.message || 'Unable to load quiz sessions. Use Refresh to try again.';
+        setStatus('Quiz sessions could not be loaded');
+    } finally { $('refreshSessionsBtn').disabled = false; }
+}
 
-        session = {
-            classroomId,
-            classroom,
-            sectionId: classroom.sectionId,
-            admissionNo,
-            student,
-            studentName: student.name || `Admission ${admissionNo}`,
-            studentKey: `${classroom.sectionId}_${admissionNo}`
-        };
-        els.welcomeTitle.textContent = `Welcome, ${session.studentName}`;
-        els.classroomLabel.textContent = `${classroom.className || classroom.classCode || classroomId} · ${classroom.sectionName || classroom.sectionId}`;
-        saveVerifiedSession();
+function quizSessionStatus(classroom, submitted, today = new Date()) {
+    if (submitted) return { className: 'session-submitted', label: 'Submitted' };
+    const dueMillis = classroom.dueAt?.toMillis?.();
+    if (!Number.isFinite(dueMillis)) return { className: '', label: '' };
+    const due = new Date(dueMillis);
+    // Compare local calendar dates, avoiding daylight-saving changes in day lengths.
+    const dayNumber = date => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000;
+    const daysRemaining = dayNumber(due) - dayNumber(today);
+    if (daysRemaining < 0) return { className: 'session-overdue', label: 'Overdue' };
+    if (daysRemaining <= 3) return { className: 'session-due-soon', label: daysRemaining === 0 ? 'Due today' : 'Due within 3 days' };
+    if (daysRemaining <= 6) return { className: 'session-due-week', label: 'Due within 6 days' };
+    return { className: '', label: '' };
+}
+
+function sessionScheduleDate(timestamp, fallback) {
+    const millis = timestamp?.toMillis?.();
+    return Number.isFinite(millis) ? new Date(millis).toLocaleString() : fallback;
+}
+
+function sessionCreatedMillis(classroom) {
+    return classroom.createdAt?.toMillis?.() || Number(classroom.createdDate) || 0;
+}
+
+async function openQuizSession(classroomId) {
+    if (!studentProfile || openingSession) return;
+    openingSession = true;
+    const profile = studentProfile;
+    try {
+        const snap = await getDoc(doc(db, COLLECTIONS.classrooms, classroomId));
+        if (studentProfile !== profile) return;
+        const classroom = snap.exists() ? snap.data() : null;
+        if (!classroom || classroom.sectionId !== profile.sectionId || classroom.classEnabled !== true || classroom.archived === true) {
+            throw new Error('This quiz session is no longer available. Refresh the dashboard.');
+        }
+        session = { ...profile, classroomId, classroom };
+        loadedQuestions = [];
+        quiz = null;
+        currentIndex = 0;
+        stopTimer();
+        els.welcomeTitle.textContent = `Welcome, ${profile.studentName || 'Student'}`;
+        els.classroomLabel.textContent = `${classroom.className || classroomId} · ${classroom.sectionName || profile.sectionId}`;
         configureSetupForClassroom();
-        hasSubmittedCurrentSession = hasQuizSessionQuestionList() && await hasExistingClassroomSubmission();
-        if (hasSubmittedCurrentSession) {
-            $('loadQuestionsBtn').disabled = true;
-            els.startQuizBtn.disabled = true;
-            els.questionLoadSummary.textContent = 'You have already submitted this quiz session.';
-        }
-        const verifiedStatus = session.classroom.questionBankListId
-            ? 'Verified. Loading quiz session questions...'
-            : 'Verified. Choose quiz filters and load questions.';
-        setStatus(hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : verifiedStatus);
+        const existingSubmissionId = await findExistingClassroomSubmissionId();
+        hasSubmittedCurrentSession = !!existingSubmissionId;
+        if (studentProfile !== profile) return;
         showOnly('setup');
         els.resetBtn.hidden = false;
-        els.viewSubmissionsBtn.hidden = false;
-        if (shouldShowRecentSubmission) {
-            window.location.href = submissionsUrl({ showRecent: true });
-            return;
+        if (hasSubmittedCurrentSession) {
+            $('loadQuestionsBtn').disabled = true;
+            const detailUrl = `submission.html?${new URLSearchParams({ id: existingSubmissionId })}`;
+            els.questionLoadSummary.innerHTML = `You have already submitted this quiz session. <a href="${esc(detailUrl)}">View your submission</a> to review your answers.`;
+            setStatus('Already submitted for this quiz session');
+        } else if (hasQuizSessionQuestionList()) {
+            await loadPublishedQuestions();
+        } else {
+            await loadTaxonomyFilters();
         }
-        if (hasQuizSessionQuestionList() && !hasSubmittedCurrentSession) await loadPublishedQuestions();
-        if (!hasQuizSessionQuestionList()) await loadTaxonomyFilters();
-    } catch (error) {
-        showLoginError(error.message || 'Unable to verify student.');
-        setStatus('Verification failed');
-    }
-}
-
-async function initializeClassroomFromUrl() {
-    const params = new URLSearchParams(window.location.search);
-    urlClassCode = params.get('classCode')?.trim()
-        || params.get('code')?.trim()
-        || '';
-    shouldShowRecentSubmission = params.get('show-recent') === '1';
-    if (!urlClassCode) return;
-
-    els.classCodeInput.value = urlClassCode;
-    els.classCodeInput.readOnly = true;
-    setStatus('Loading quiz session...');
-    try {
-        const classroomResult = await findClassroom(urlClassCode);
-        if (!classroomResult) {
-            els.classCodeInput.readOnly = false;
-            showLoginError(`No quiz session found for code ${urlClassCode}.`);
-            setStatus('Enter your quiz session details to begin');
-            return;
-        }
-
-        urlClassroomResult = classroomResult;
-        els.classCodeField.hidden = true;
-        els.urlClassroomHint.hidden = false;
-        els.urlClassroomHint.textContent = `${classroomTitle(classroomResult)}. Enter admission number and the first 6 phone digits to continue.`;
-        prefillRecentLoginForUrlClass();
-        setStatus('Quiz session found. Enter admission number and first 6 phone digits.');
-    } catch (error) {
-        els.classCodeInput.readOnly = false;
-        showLoginError(error.message || 'Unable to load quiz session from the URL.');
-        setStatus('Quiz session lookup failed');
-    }
+    } catch (error) { toast(error.message || 'Unable to open quiz session.'); }
+    finally { openingSession = false; }
 }
 
 function submissionsUrl(options = {}) {
-    const params = new URLSearchParams();
-    params.set('v', APP_VERSION);
+    const params = new URLSearchParams({ v: APP_VERSION });
     if (options.showRecent) params.set('show-recent', '1');
-    return `submissions.html${params.toString() ? `?${params}` : ''}`;
-}
-
-function prefillRecentLoginForUrlClass() {
-    if (!shouldShowRecentSubmission || !urlClassCode) return;
-    const recentLogin = readRecentLogin(urlClassCode);
-    if (!recentLogin) return;
-    if (recentLogin.admissionNo) $('admissionNoInput').value = recentLogin.admissionNo;
-    if (recentLogin.phone) $('phoneInput').value = recentLogin.phone;
-}
-
-async function findClassroom(classCode) {
-    const directSnap = await getDoc(doc(db, COLLECTIONS.classrooms, classCode));
-    if (directSnap.exists()) return { classroomId: directSnap.id, classroom: directSnap.data() };
-    const snap = await getDocs(query(collection(db, COLLECTIONS.classrooms), where('classCode', '==', classCode)));
-    if (snap.empty) return null;
-    const first = snap.docs[0];
-    return { classroomId: first.id, classroom: first.data() };
-}
-
-async function findStudent(sectionId, admissionNo) {
-    const studentsRef = collection(db, COLLECTIONS.classSections, sectionId, 'students');
-    const directSnap = await getDoc(doc(studentsRef, admissionNo));
-    if (directSnap.exists()) return { studentDocId: directSnap.id, student: directSnap.data() };
-    const snap = await getDocs(query(studentsRef, where('admissionNo', '==', admissionNo)));
-    if (snap.empty) return null;
-    const first = snap.docs[0];
-    return { studentDocId: first.id, student: first.data() };
-}
-
-function classroomTitle({ classroomId, classroom }) {
-    return classroom.className || classroom.classCode || classroomId;
+    return `submissions.html?${params}`;
 }
 
 function configureSetupForClassroom() {
     const hasClassroomList = !!session?.classroom?.questionBankListId;
-    els.quizFilterControls.hidden = hasClassroomList;
+    const showSettings = shouldShowQuizSettings();
+    els.quizFiltersGroup.hidden = hasClassroomList;
+    els.quizSettingsGroup.hidden = !showSettings;
+    els.quizFilterControls.hidden = hasClassroomList && !showSettings;
     $('loadQuestionsBtn').hidden = hasClassroomList;
     $('loadQuestionsBtn').disabled = false;
     els.startQuizBtn.disabled = true;
     els.questionLoadSummary.textContent = hasClassroomList
         ? 'Loading the teacher-selected quiz session question list...'
         : 'Load questions to see availability.';
+}
+
+function shouldShowQuizSettings() {
+    return ['practice', 'reading_practice', 'writing_practice'].includes(String(session?.classroom?.mode || '').trim());
 }
 
 async function loadTaxonomyFilters() {
@@ -820,7 +743,7 @@ function resetLoadedQuestionSelection() {
 
 async function loadPublishedQuestions() {
     if (!session) return toast('Verify student first');
-    if (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) {
+    if (hasSubmittedCurrentSession) {
         els.startQuizBtn.disabled = true;
         toast('A submission already exists for this admission number in this quiz session.');
         setStatus('Already submitted for this quiz session.');
@@ -853,13 +776,14 @@ async function loadPublishedQuestions() {
                 .filter(q => matchesQuizFilters(q, filters));
             const requested = Number($('questionCountInput').value || 10);
             const filterSummary = [
+                filters.verifiedOnly ? 'staff verified' : '',
                 filters.explanationOnly ? 'with explanations' : '',
                 filters.translationOnly ? 'with translations' : ''
             ].filter(Boolean).join(' and ');
             els.questionLoadSummary.textContent = `${loadedQuestions.length} published question${loadedQuestions.length === 1 ? '' : 's'}${filterSummary ? ` ${filterSummary}` : ''} match these filters. All are downloaded locally; ${Math.min(requested, loadedQuestions.length)} will be chosen using student performance memory at Start.`;
         }
-        els.startQuizBtn.disabled = (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) || !loadedQuestions.length;
-        setStatus(hasQuizSessionQuestionList() && hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : 'Questions loaded. You can start the quiz.');
+        els.startQuizBtn.disabled = (hasSubmittedCurrentSession) || !loadedQuestions.length;
+        setStatus(hasSubmittedCurrentSession ? 'Already submitted for this quiz session.' : 'Questions loaded. You can start the quiz.');
     } catch (error) {
         els.questionLoadSummary.textContent = error.message || 'Unable to load questions.';
         setStatus('Question load failed');
@@ -951,6 +875,7 @@ function getQuizFilters() {
         difficulty: $('difficultyFilter').value.trim(),
         explanationOnly: $('explanationOnlyFilter').checked,
         translationOnly: $('translationOnlyFilter').checked,
+        verifiedOnly: $('verifiedOnlyFilter').checked,
         instantFeedback: $('instantFeedbackFilter').checked
     };
 }
@@ -961,6 +886,7 @@ function matchesQuizFilters(question, filters) {
     if (filters.chapterId && question.chapterId !== filters.chapterId) return false;
     if (filters.questionTypes.length && !filters.questionTypes.includes(question.type)) return false;
     if (filters.difficulty && question.difficulty !== filters.difficulty) return false;
+    if (filters.verifiedOnly && question.verified !== true) return false;
     if (filters.explanationOnly && !validExplanationUrl(question.explanationUrl)) return false;
     if (filters.translationOnly && !hasQuestionTranslation(question)) return false;
     return true;
@@ -1018,6 +944,7 @@ async function selectAdaptiveQuestions(questions, count) {
             title: stripHtml(item.question.promptHtml || '').slice(0, 140) || `${TYPE_LABELS[item.question.type] || item.question.type} question`,
             type: TYPE_LABELS[item.question.type] || item.question.type,
             chapter: taxonomyLabel(item.question.chapterId) || item.question.chapter || 'Any chapter',
+            actfl: actflMemoryDetails(item.question),
             score: item.score,
             reasons: item.reasons
         }))
@@ -1056,6 +983,10 @@ function emptyStudentPerformanceMemory() {
         weakChapters: new Map(),
         weakTypes: new Map(),
         weakDifficulties: new Map(),
+        weakSkills: new Map(),
+        weakActflLevels: new Map(),
+        weakActflSublevels: new Map(),
+        weakActflModes: new Map(),
         weakTerms: new Map(),
         strongTerms: new Map(),
         liveAnswerCount: 0
@@ -1073,6 +1004,12 @@ function applyAnswerToPerformanceMemory(memory, answer, source = 'history') {
         incrementMap(memory.weakChapters, answer.chapter || '');
         incrementMap(memory.weakTypes, answer.type || '');
         incrementMap(memory.weakDifficulties, answer.difficulty || '');
+        if (shouldUseActflMemory()) {
+            incrementMap(memory.weakSkills, answer.skill || '');
+            incrementMap(memory.weakActflLevels, answer.actfl_level || '');
+            incrementMap(memory.weakActflSublevels, answer.actfl_sublevel || '');
+            incrementMap(memory.weakActflModes, answer.actfl_mode || '');
+        }
         addWeightedTerms(memory.weakTerms, answerMemoryText(answer), source === 'live' ? 1.5 : 1);
     } else if (result === 'strong') {
         memory.correctIds.add(answer.questionId);
@@ -1099,7 +1036,8 @@ function answerMemoryText(answer) {
         answer.displayAnswer || '',
         answer.chapter || '',
         answer.topic || '',
-        answer.type || ''
+        answer.type || '',
+        shouldUseActflMemory() ? actflMemoryText(answer) : ''
     ].join(' ');
 }
 
@@ -1140,6 +1078,13 @@ async function rankQuestionsForStudent(questions, memory, options = {}) {
         if (difficultyWeakness) {
             score += Math.min(difficultyWeakness, 3) * 0.6;
             reasons.push(`Matches difficulty where the student has struggled: ${difficulty}.`);
+        }
+        if (shouldUseActflMemory()) {
+            const actflScore = actflWeaknessScore(question, memory);
+            if (actflScore.score) {
+                score += actflScore.score;
+                reasons.push(`Targets ACTFL memory: ${actflScore.reasons.join(', ')}.`);
+            }
         }
 
         const questionText = questionMemoryText(question);
@@ -1191,8 +1136,47 @@ function questionMemoryText(question) {
         taxonomyLabel(question.topicId) || question.topic || '',
         question.type || '',
         question.difficulty || '',
-        question.explanation || ''
+        question.explanation || '',
+        shouldUseActflMemory() ? actflMemoryText(question) : ''
     ].join(' ');
+}
+
+function shouldUseActflMemory() {
+    return ['reading_practice', 'writing_practice'].includes(String(session?.classroom?.mode || '').trim());
+}
+
+function actflMemoryText(item) {
+    return [
+        item.skill || '',
+        item.actfl_level || '',
+        item.actfl_sublevel || '',
+        item.actfl_mode || ''
+    ].filter(Boolean).join(' ');
+}
+
+function actflMemoryDetails(item) {
+    if (!shouldUseActflMemory()) return [];
+    return [
+        item.skill ? `Skill: ${item.skill}` : '',
+        item.actfl_level ? `ACTFL Level: ${item.actfl_level}` : '',
+        item.actfl_sublevel ? `ACTFL Sublevel: ${item.actfl_sublevel}` : '',
+        item.actfl_mode ? `ACTFL Mode: ${item.actfl_mode}` : ''
+    ].filter(Boolean);
+}
+
+function actflWeaknessScore(question, memory) {
+    const matches = [
+        { label: 'skill', value: question.skill, map: memory.weakSkills, weight: 1.2 },
+        { label: 'level', value: question.actfl_level, map: memory.weakActflLevels, weight: 1.1 },
+        { label: 'sublevel', value: question.actfl_sublevel, map: memory.weakActflSublevels, weight: 0.7 },
+        { label: 'mode', value: question.actfl_mode, map: memory.weakActflModes, weight: 1 }
+    ]
+        .map(item => ({ ...item, count: item.value ? item.map.get(item.value) || 0 : 0 }))
+        .filter(item => item.count > 0);
+    return {
+        score: matches.reduce((total, item) => total + Math.min(item.count, 4) * item.weight, 0),
+        reasons: matches.map(item => `${item.label} ${item.value} (${item.count} past issue${item.count === 1 ? '' : 's'})`)
+    };
 }
 
 function studentMemorySummary(memory) {
@@ -1275,6 +1259,7 @@ function refreshSelectionMemoryDisplay(rankedRemaining) {
             title: stripHtml(question.promptHtml || '').slice(0, 140) || `${TYPE_LABELS[question.type] || question.type} question`,
             type: TYPE_LABELS[question.type] || question.type,
             chapter: taxonomyLabel(question.chapterId) || question.chapter || 'Any chapter',
+            actfl: actflMemoryDetails(question),
             score: rankedItem?.score ?? 0,
             reasons: index <= currentIndex
                 ? ['Already answered in this attempt; position is locked.']
@@ -1289,7 +1274,7 @@ function refreshSelectionMemoryDisplay(rankedRemaining) {
 }
 
 async function startQuiz() {
-    if (hasQuizSessionQuestionList() && hasSubmittedCurrentSession) {
+    if (hasSubmittedCurrentSession) {
         toast('A submission already exists for this admission number in this quiz session.');
         setStatus('Already submitted for this quiz session.');
         els.startQuizBtn.disabled = true;
@@ -1307,12 +1292,13 @@ async function startQuiz() {
     quiz = {
         questions: selected,
         answers: selected.map(q => emptyAnswer(q)),
-        instantFeedback: $('instantFeedbackFilter').checked,
-        showSpeaker: $('speakerButtonFilter').checked,
-        listenRespond: $('listenRespondFilter').checked,
-        fibChoiceBank: $('fibChoiceBankFilter').checked,
-        shortAnswerWordBank: $('shortAnswerWordBankFilter').checked,
-        promptRevealed: selected.map(() => !$('listenRespondFilter').checked),
+        instantFeedback: shouldShowQuizSettings() && $('instantFeedbackFilter').checked,
+        showSpeaker: shouldShowQuizSettings() && $('speakerButtonFilter').checked,
+        listenRespond: shouldShowQuizSettings() && $('listenRespondFilter').checked,
+        fibChoiceBank: shouldShowQuizSettings() && $('fibChoiceBankFilter').checked,
+        shortAnswerWordBank: shouldShowQuizSettings() && $('shortAnswerWordBankFilter').checked,
+        showTranslatedShortAnswer: shouldShowQuizSettings() && $('translatedShortAnswerFilter').checked,
+        promptRevealed: selected.map(() => !(shouldShowQuizSettings() && $('listenRespondFilter').checked)),
         translationChoices: selected.map(() => ''),
         feedback: selected.map(() => null),
         feedbackShown: selected.map(() => false),
@@ -1344,6 +1330,10 @@ function snapshotQuestion(question) {
         chapter: taxonomyLabel(question.chapterId) || question.chapter || '',
         topic: taxonomyLabel(question.topicId) || question.topic || '',
         difficulty: question.difficulty || '',
+        skill: question.skill || '',
+        actfl_level: question.actfl_level || '',
+        actfl_sublevel: question.actfl_sublevel || '',
+        actfl_mode: question.actfl_mode || '',
         explanationUrl: validExplanationUrl(question.explanationUrl),
         explanation: question.explanation || '',
         promptHtml: question.promptHtml || '',
@@ -1534,6 +1524,19 @@ function renderTranslationControl(question) {
     `;
 }
 
+function translatedShortAnswerPanel(question) {
+    if (!quiz.showTranslatedShortAnswer || question.type !== 'short_answer') return '';
+    const language = currentTranslationLanguage();
+    const answer = language ? questionTranslation(question, language)?.answer || '' : '';
+    if (!answer) return '';
+    return `
+        <details class="translated-answer-panel">
+            <summary>View translated answer</summary>
+            <div class="rich-content">${sanitizeRich(answer)}</div>
+        </details>
+    `;
+}
+
 function speakCurrentQuestion() {
     if (!quiz || !('speechSynthesis' in window)) return;
     const question = quiz.questions[currentIndex];
@@ -1693,6 +1696,7 @@ function renderSelectionMemory() {
                 <li>
                     <strong>Q${item.index}: ${esc(item.type)} - ${esc(item.chapter)}</strong>
                     <div>${esc(item.title)}</div>
+                    ${(item.actfl || []).length ? `<div class="meta-line">${item.actfl.map(detail => esc(detail)).join(' · ')}</div>` : ''}
                     <div class="score-line">Selection score: ${formatPoints(item.score)}</div>
                     <ul>
                         ${(item.reasons || []).map(reason => `<li>${esc(reason)}</li>`).join('')}
@@ -1935,6 +1939,7 @@ function answerInputHtml(question, answer) {
         if (mode === 'typing') {
             return `
                 <div class="short-word-layout">
+                    ${translatedShortAnswerPanel(question)}
                     ${modeToggle}
                     <label class="field text-answer">
                         <span>Short Answer</span>
@@ -1945,6 +1950,7 @@ function answerInputHtml(question, answer) {
         }
         return `
             <div class="short-word-layout">
+                ${translatedShortAnswerPanel(question)}
                 ${modeToggle}
                 <input id="shortAnswerInput" type="hidden" value="${esc(answer.shortAnswer || '')}" />
                 <div class="short-answer-line" aria-label="Selected answer words">
@@ -1960,10 +1966,13 @@ function answerInputHtml(question, answer) {
         `;
     }
     return `
-        <label class="field text-answer">
-            <span>Short Answer</span>
-            <textarea id="shortAnswerInput" rows="5" placeholder="Type your answer">${esc(answer.shortAnswer || '')}</textarea>
-        </label>
+        <div class="short-word-layout">
+            ${translatedShortAnswerPanel(question)}
+            <label class="field text-answer">
+                <span>Short Answer</span>
+                <textarea id="shortAnswerInput" rows="5" placeholder="Type your answer">${esc(answer.shortAnswer || '')}</textarea>
+            </label>
+        </div>
     `;
 }
 
@@ -2060,6 +2069,8 @@ async function submitQuiz() {
     const gradable = gradedAnswers.filter(a => a.isCorrect !== null);
     const correct = gradable.filter(a => a.isCorrect).length;
     const submission = {
+        authUid: session.authUid,
+        email: session.email,
         classroomId: session.classroomId,
         sectionId: session.sectionId,
         admissionNo: session.admissionNo,
@@ -2083,7 +2094,7 @@ async function submitQuiz() {
     };
     try {
         setStatus('Submitting quiz...');
-        if (hasQuizSessionQuestionList() && await hasExistingClassroomSubmission()) {
+        if (await hasExistingClassroomSubmission()) {
             toast('A submission already exists for this admission number in this quiz session.');
             setStatus('Duplicate submission blocked');
             return;
@@ -2101,15 +2112,15 @@ async function submitQuiz() {
 }
 
 async function hasExistingClassroomSubmission() {
-    const submissionRef = doc(db, COLLECTIONS.submissions, submissionDocId());
-    const directSnap = await getDoc(submissionRef);
-    if (directSnap.exists()) return true;
+    return !!(await findExistingClassroomSubmissionId());
+}
 
+async function findExistingClassroomSubmissionId() {
     const snap = await getDocs(query(
         collection(db, COLLECTIONS.submissions),
         where('studentKey', '==', session.studentKey)
     ));
-    return snap.docs.some(existing => existing.data().classroomId === session.classroomId);
+    return snap.docs.find(existing => existing.data().classroomId === session.classroomId)?.id || null;
 }
 
 function hasQuizSessionQuestionList() {
@@ -2138,6 +2149,10 @@ function gradeAnswer(question, answer) {
         chapter: question.chapter || '',
         topic: question.topic || '',
         difficulty: question.difficulty || '',
+        skill: question.skill || '',
+        actfl_level: question.actfl_level || '',
+        actfl_sublevel: question.actfl_sublevel || '',
+        actfl_mode: question.actfl_mode || '',
         explanationUrl: validExplanationUrl(question.explanationUrl),
         explanation: question.explanation || '',
         promptHtml: questionPromptText(question, translationLanguage),
@@ -2569,7 +2584,7 @@ async function renderRich(root) {
 }
 
 function showOnly(view) {
-    els.loginView.hidden = view !== 'login';
+    els.dashboardView.hidden = view !== 'dashboard';
     els.setupView.hidden = view !== 'setup';
     els.quizView.hidden = view !== 'quiz';
     els.resultView.hidden = view !== 'result';
@@ -2582,77 +2597,8 @@ function resetApp() {
     currentIndex = 0;
     hasSubmittedCurrentSession = false;
     stopTimer();
-    els.resetBtn.hidden = true;
-    els.viewSubmissionsBtn.hidden = true;
-    els.classCodeField.hidden = !!urlClassroomResult;
-    els.phoneHintBox.hidden = true;
-    els.urlClassroomHint.hidden = !urlClassroomResult;
-    if (urlClassroomResult) {
-        els.classCodeInput.value = urlClassCode;
-        els.classCodeInput.readOnly = true;
-        els.urlClassroomHint.textContent = `${classroomTitle(urlClassroomResult)}. Enter admission number and the first 6 phone digits to continue.`;
-    }
-    els.quizFilterControls.hidden = false;
-    els.subjectFilterField.hidden = true;
-    els.chapterFilterField.hidden = true;
-    populateTaxonomySelect('classFilter', taxonomyItems.filter(item => item.type === 'class'), 'Select class');
-    populateTaxonomySelect('subjectFilter', [], 'Select subject');
-    populateTaxonomySelect('chapterFilter', [], 'Select chapter');
-    document.querySelectorAll('.question-type-filter').forEach(input => {
-        input.checked = true;
-    });
-    $('explanationOnlyFilter').checked = false;
-    $('translationOnlyFilter').checked = false;
-    $('instantFeedbackFilter').checked = true;
-    $('speakerButtonFilter').checked = true;
-    $('listenRespondFilter').checked = false;
-    $('fibChoiceBankFilter').checked = true;
-    $('shortAnswerWordBankFilter').checked = true;
-    $('loadQuestionsBtn').hidden = false;
-    $('loadQuestionsBtn').disabled = false;
-    els.startQuizBtn.disabled = true;
-    els.questionLoadSummary.textContent = 'Load questions to see availability.';
-    if (els.selectionMemoryPanel) {
-        els.selectionMemoryPanel.hidden = true;
-        els.selectionMemoryDetails.innerHTML = '';
-    }
-    sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    showLoginError('');
-    setStatus('Enter your quiz session details to begin');
-    showOnly('login');
-}
-
-function saveVerifiedSession() {
-    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-        classroomId: session.classroomId,
-        sectionId: session.sectionId,
-        admissionNo: session.admissionNo,
-        studentName: session.studentName,
-        studentKey: session.studentKey,
-        classroomLabel: els.classroomLabel.textContent
-    }));
-    saveRecentLogin();
-}
-
-function saveRecentLogin() {
-    const classCode = session.classroom.classCode || session.classroomId;
-    if (!classCode) return;
-    localStorage.setItem(recentLoginStorageKey(classCode), JSON.stringify({
-        admissionNo: session.admissionNo,
-        phone: phonePrefixValue($('phoneInput').value)
-    }));
-}
-
-function readRecentLogin(classCode) {
-    try {
-        return JSON.parse(localStorage.getItem(recentLoginStorageKey(classCode)) || 'null');
-    } catch {
-        return null;
-    }
-}
-
-function recentLoginStorageKey(classCode) {
-    return `${RECENT_LOGIN_STORAGE_PREFIX}${classCode}`;
+    window.speechSynthesis?.cancel();
+    loadStudentSessions();
 }
 
 function startTimer() {
@@ -2669,26 +2615,10 @@ function stopTimer() {
     timerInterval = null;
 }
 
-function showLoginError(message) {
-    els.loginError.hidden = !message;
-    els.loginError.textContent = message;
-}
-
 function setStatus(message) {
     els.statusText.textContent = message;
 }
 
-function normalizePhone(value) {
-    return String(value || '').replace(/\D/g, '');
-}
-
-function phonePrefixValue(value) {
-    return normalizePhone(value).slice(0, 6);
-}
-
-function sanitizePhonePrefixInput(event) {
-    event.target.value = phonePrefixValue(event.target.value);
-}
 
 function normalizeText(value) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');

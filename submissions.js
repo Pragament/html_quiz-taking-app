@@ -1,21 +1,16 @@
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import { maybePromptGuidedTour } from './tours.js';
+import { initializeHeader, setHeaderStudent } from './header.js';
+import { auth, db, loginUrl } from './firebase.js';
 import {
     collection,
+    doc,
+    getDoc,
     getDocs,
-    getFirestore,
     query,
     where
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-const firebaseConfig = {
-    apiKey: 'AIzaSyAYlezFn0tSSQHA-vRnJeBfJ-Om1YlDghk',
-    authDomain: 'eschool-dev-4c6b4.firebaseapp.com',
-    projectId: 'eschool-dev-4c6b4',
-    storageBucket: 'eschool-dev-4c6b4.firebasestorage.app',
-    messagingSenderId: '875648503944',
-    appId: '1:875648503944:web:5df5e950b6215a446f0f3d',
-    measurementId: 'G-E2JHVL7Q4V'
-};
+import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 
 const COLLECTIONS = {
     submissions: 'qb_quiz_submissions_v1'
@@ -28,12 +23,12 @@ const TYPE_LABELS = {
     short_answer: 'Short Answer'
 };
 
-const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SHOW_RECENT_PARAM = 'show-recent';
+const isSubmissionDetailPage = document.body.dataset.page === 'submission-detail';
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
 let reportPromptTexts = [];
+
+initializeHeader({ page: 'submissions', tourPage: isSubmissionDetailPage ? 'submission-detail' : 'submissions', statusId: 'historyStatusText', statusText: isSubmissionDetailPage ? 'Loading submission...' : 'Loading submission history...' });
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -49,7 +44,22 @@ if (window.mermaid) {
     window.mermaid.initialize({ startOnLoad: false, theme: 'default' });
 }
 
-loadSubmissionHistory();
+onAuthStateChanged(auth, async user => {
+    if (!user) { window.location.replace(loginUrl()); return; }
+    try {
+        const snap = await getDoc(doc(db, 'studentProfiles', user.uid));
+        const profile = snap.exists() ? snap.data() : null;
+        if (!profile || profile.active !== true || profile.authUid !== user.uid || !profile.studentKey) {
+            throw new Error('Student profile is unavailable or inactive.');
+        }
+        setHeaderStudent(profile);
+        if (isSubmissionDetailPage) await loadSubmissionDetail(profile);
+        else await loadSubmissionHistory(profile);
+    } catch (error) {
+        els.statusText.textContent = error.message || 'Unable to load student profile.';
+        els.historyList.textContent = 'Return to the homepage to sign in.';
+    }
+});
 
 els.historyList.addEventListener('click', event => {
     const copyButton = event.target.closest('[data-copy-prompt]');
@@ -74,8 +84,7 @@ els.studentReport.addEventListener('click', event => {
     copyReportPrompt(Number(button.dataset.copyPrompt));
 });
 
-async function loadSubmissionHistory() {
-    const verifiedSession = readVerifiedSession();
+async function loadSubmissionHistory(verifiedSession) {
     if (!verifiedSession?.studentKey) {
         els.statusText.textContent = 'Verify a student before viewing past submissions.';
         els.studentName.textContent = 'No verified student';
@@ -93,7 +102,7 @@ async function loadSubmissionHistory() {
             where('studentKey', '==', verifiedSession.studentKey)
         ));
         const submissions = snap.docs
-            .map(d => ({ id: d.id, ...d.data() }))
+            .map(d => ({ ...d.data(), id: d.id }))
             .sort((a, b) => (b.submittedAtMillis || 0) - (a.submittedAtMillis || 0));
         renderHistory(submissions);
         els.statusText.textContent = `${submissions.length} submission${submissions.length === 1 ? '' : 's'} found.`;
@@ -103,48 +112,77 @@ async function loadSubmissionHistory() {
     }
 }
 
-function readVerifiedSession() {
-    try {
-        return JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || 'null');
-    } catch {
-        return null;
+function submissionDetailUrl(id) {
+    return `submission.html?${new URLSearchParams({ id })}`;
+}
+
+async function loadSubmissionDetail(profile) {
+    const id = new URLSearchParams(window.location.search).get('id');
+    els.studentName.textContent = profile.studentName || 'Student';
+    els.studentReport.innerHTML = '';
+    if (!id || id.includes('/')) {
+        els.statusText.textContent = 'Submission link is invalid.';
+        els.historyList.textContent = 'Choose a submission from Past Submissions.';
+        return;
     }
+    try {
+        const snap = await getDoc(doc(db, COLLECTIONS.submissions, id));
+        const submission = snap.exists() ? snap.data() : null;
+        if (!submission || submission.studentKey !== profile.studentKey) {
+            throw new Error('This submission is unavailable.');
+        }
+        reportPromptTexts = [];
+        els.classroomLabel.textContent = submissionSessionLabel(submission);
+        els.statusText.textContent = `Submitted ${submissionDateLabel(submission)}`;
+        document.title = `${submissionSessionLabel(submission)} | Submission Details`;
+        els.historyList.innerHTML = `<div class="submission-review">
+            ${renderSubmissionDetails(submission)}
+            ${renderSubmissionPromptSection(submission)}
+            ${renderReviewTabs(submission.answers || [])}
+            ${renderSubmissionAnswers(submission.answers || [])}
+        </div>`;
+        await renderRich(els.historyList);
+        maybePromptGuidedTour('submission-detail');
+    } catch (error) {
+        els.statusText.textContent = 'Submission could not be loaded.';
+        els.historyList.textContent = error.code === 'permission-denied'
+            ? 'This submission is unavailable.' : error.message || 'Unable to load submission. Please try again.';
+    }
+}
+
+function submissionDateLabel(submission) {
+    const millis = submission.submittedAtMillis || submission.submittedAt?.toMillis?.();
+    return millis ? new Date(millis).toLocaleString() : 'Date unavailable';
 }
 
 function renderHistory(submissions) {
     const showRecent = new URLSearchParams(window.location.search).get(SHOW_RECENT_PARAM) === '1';
+    if (showRecent && submissions.length) {
+        window.location.replace(submissionDetailUrl(submissions[0].id));
+        return;
+    }
     reportPromptTexts = [];
     els.studentReport.innerHTML = renderStudentReport(submissions);
-    els.historyList.innerHTML = submissions.length ? submissions.map((sub, index) => `
-        <details class="history-card" ${showRecent && index === 0 ? 'open' : ''}>
-            <summary class="history-summary">
+    els.historyList.innerHTML = submissions.length ? submissions.map(sub => `
+        <article class="history-card">
+            <a class="history-summary submission-link" href="${esc(submissionDetailUrl(sub.id))}">
                 <span class="history-summary-main">
-                    <strong>${new Date(sub.submittedAtMillis || Date.now()).toLocaleString()}</strong>
+                    <strong>${esc(submissionSessionLabel(sub))}</strong>
+                    <span>${esc(submissionDateLabel(sub))}</span>
                     <span class="score-line">
-                        <span>${esc(submissionSessionLabel(sub))}</span>
-                        <span>${sub.questionCount} questions</span>
-                        <span>${sub.answeredCount} answered</span>
-                        <span>${sub.correctCount}/${sub.gradableCount} auto-graded</span>
+                        <span>${esc(sub.questionCount || 0)} questions</span>
+                        <span>${esc(sub.answeredCount || 0)} answered</span>
+                        <span>${esc(sub.correctCount || 0)}/${esc(sub.gradableCount || 0)} auto-graded</span>
                         <span>${esc(sub.subject || 'Any subject')}</span>
                         <span>${esc((sub.chapters || []).join(', ') || 'Any chapter')}</span>
                     </span>
                 </span>
-                <span class="step-chip">${sub.correctCount}/${sub.gradableCount}</span>
-            </summary>
-            <div class="submission-review">
-                ${renderSubmissionDetails(sub)}
-                ${renderSubmissionPromptSection(sub)}
-                ${renderReviewTabs(sub.answers || [])}
-                ${renderSubmissionAnswers(sub.answers || [])}
-            </div>
-        </details>
+                <span class="step-chip">View Details →</span>
+            </a>
+        </article>
     `).join('') : '<div class="quiz-summary">No previous submissions for this student.</div>';
     renderRich(els.studentReport);
-    renderRich(els.historyList);
-    if (showRecent && submissions.length) {
-        els.statusText.textContent = 'Showing most recent submission.';
-        els.historyList.querySelector('.history-card')?.scrollIntoView({ block: 'start' });
-    }
+    maybePromptGuidedTour('submissions');
 }
 
 function renderStudentReport(submissions) {

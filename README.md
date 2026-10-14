@@ -1,38 +1,35 @@
 # Quiz Activity App
 
-Independent responsive quiz-taking app for students. It verifies a student through existing quiz session records in `classrooms` and `classSections/{sectionId}/students` data, loads quiz-session question-list questions or published question bank questions, runs the quiz from a local in-memory snapshot after Start, and writes attempts to `qb_quiz_submissions_v1`.
+Independent responsive quiz-taking app for students. It signs students in with Firebase email/password and loads their section from `studentProfiles/{authUid}`, loads quiz-session question-list questions or published question bank questions, runs the quiz from a local in-memory snapshot after Start, and writes attempts to `qb_quiz_submissions_v1`.
 
 ## Files
 
-- `index.html` - login, quiz setup, quiz runner, result, and past-submissions navigation.
-- `submissions.html` - standalone past-submissions page for the verified student.
+- `login.html` / `login.js` - student email/password sign-in.
+- `index.html` - student dashboard, quiz setup, quiz runner, and result.
+- `firebase.js` - shared Firebase configuration and authentication redirect.
+- `header.js` - consistent signed-in navigation and student identity across the dashboard, submissions list, and submission detail pages.
+- `submissions.html` - past-submissions list and student progress report.
+- `submission.html?id=<submissionId>` - dedicated authenticated submission detail page, including answer review, review filters, and AI feedback.
 - `styles.css` - responsive phone, tablet, and desktop layout.
-- `app.js` - Firebase reads/writes, student verification, quiz state, grading, and verified-session storage.
+- `app.js` - Firebase reads/writes, student authentication, section dashboard, quiz state, and grading.
 - `submissions.js` - Firebase read and detailed answer review for the standalone past-submissions page.
 - `FIRESTORE_SCHEMA.md` - collection and document schema notes.
 - `firestore.rules` - starter rules for quiz-related access.
 
 ## Flow
 
-1. Student enters quiz session code, `admissionNo`, and the first 6 digits of the registered `phone`.
-2. On page load, Intro.js prompts for a guided tour unless `quizActivityHideGuidedTour` is saved in local storage. The header Tour button can relaunch it later.
-3. App reads `/classrooms/{classCode}` first, then falls back to `classrooms where classCode == enteredCode`.
-4. Login continues only when `classEnabled === true`.
-5. App reads `/classSections/{sectionId}/students/{admissionNo}` first, then falls back to querying by `admissionNo`.
-6. App shows the first 3 digits of the registered phone as a hint and verifies only the first 6 entered digits against the registered phone prefix.
-7. After verification, the Past Submissions button opens a standalone history page and the student session is stored locally so that page can load the verified student's attempts.
-8. If the quiz session has `questionBankListId`, the app hides manual filters, hides Load Questions, reads that `qb_lists_v1` document automatically, and loads only its published `questionIds` from `qb_questions_v1`.
-9. If the quiz session has `studentDifficultyLevels[admissionNo]`, the app keeps only listed questions matching that student's assigned difficulty. Missing student entries use the quiz session default question selection.
-10. If the quiz session also has `randomQuestionTypeCounts`, the app randomly picks up to that many questions per type from the selected list, then shows the picked questions in the list's original order.
-11. If the quiz session does not have `questionBankListId`, the student must choose a class, then loads all published questions from `qb_questions_v1` matching the setup filters, including one or more selected question types. By default, Step 2 keeps all question types selected and leaves "Only questions with explanation" and "Only questions with translations" unchecked. On Start, the displayed count is selected from the downloaded pool using the student's past submission memory, with offline AI semantic ranking when the embedding model is ready and local ranking otherwise.
-12. After Start, the selected question list is local in memory so navigation continues offline until Submit. Questions are grouped by `explanationUrl`, and the explanation opens in an embedded frame beside the related questions on desktop.
-13. Step 2 enables instant feedback by default. Students check each answer before moving on, see correct or incorrect status, correct answer, question points, running total points, and the question `explanation` text when available. Short-answer questions are scored on-device with offline AI models when the browser-cached models are ready, with a local heuristic fallback while models download in the background.
-14. During the quiz, students can switch to any available question translation. Translated question text, MCQ options, and short-answer expected words are shown when provided.
-15. Step 2 shows a speaker button before each question by default. Voice and speed preferences are saved locally and can also be changed during the quiz, and optional listen-and-respond mode hides question text until the student chooses to reveal it.
-16. Step 2 enables a clickable shuffled answer bank by default for fill-in-the-blank questions with more than one blank. Students click answers to fill the next blank and can undo a selected answer.
-17. Step 2 enables a clickable shuffled word bank by default for short-answer questions. Students can switch between word bank mode and typing mode, build an answer from expected-answer words, choose an insertion gap between selected words, undo selected words, and see each selected word marked green or red before checking the answer.
-18. Submit writes to `qb_quiz_submissions_v1` using one deterministic submission document per quiz session, section, and admission number.
-19. `submissions.html` reads `qb_quiz_submissions_v1` by `studentKey` and shows past submissions newest first, with expandable question-by-question review filtered by All, Correct, Incorrect, or Manual. If `answers[].aiReview` exists, students also see marks, max marks, and the review reason.
+1. Students sign in at `login.html` with their school email and password using Firebase Authentication. Accounts are provisioned by the school; this app does not register accounts.
+2. The app directly reads `studentProfiles/{currentUser.uid}` and requires an active, valid profile with section, admission number, and student key.
+3. The dashboard queries `classrooms where sectionId == profile.sectionId`, shows enabled, unarchived quiz sessions, and sorts newest first using `createdAt`, falling back to `createdDate`. No composite index is needed.
+4. Clicking a session rechecks its availability and section, then opens the existing quiz setup. Teacher-selected question lists load automatically; other sessions use quiz filters. Quiz Settings are shown only for practice session modes: `practice`, `reading_practice`, and `writing_practice`. In `reading_practice` and `writing_practice`, adaptive question memory also shows and weighs ACTFL skill, level, sublevel, and mode fields.
+5. A previously submitted session is blocked from another attempt. Past Submissions uses the authenticated profile's student key, including historical submissions.
+6. Existing question selection, difficulty overrides, audio, translations, instant feedback, and offline quiz navigation remain available.
+7. Submissions use the existing deterministic session/section/admission document ID and now include `authUid` and `email`.
+8. Dashboard returns from a quiz to the session list. Sign Out ends the Firebase session. Firebase restores login across reloads.
+
+## Firebase setup
+
+Enable Email/Password authentication and provision student accounts with UID-keyed profiles as described in the supplied admin schema. Deploy the student access rules by merging `firestore.rules` with the project's existing teacher/admin rules. These sample rules grant only student access and are not deployed by this change. The backend should keep profile `active` synchronized with account status.
 
 ## Run Locally
 
@@ -45,18 +42,28 @@ python3 -m http.server 8000
 Open:
 
 ```text
-http://localhost:8000/quiz-taking-app/
+http://localhost:8000/
 ```
 
 The app loads Firebase, KaTeX, and Mermaid from CDNs, so internet is required for first load and Firestore operations.
 
 ## Notes
 
-- Quiz session links can include `?classCode=<quiz-session-code>` or `?code=<quiz-session-code>`; the app shows the quiz session name and asks only for admission number and the first 6 phone digits.
-- Quiz session links can include `&show-recent=1`; after student verification, the app opens the past-submissions page with the newest submission expanded. For these links, the app also prepopulates the last verified admission number and first 6 phone digits for that quiz session code from local storage.
+- Login always opens the section dashboard; quiz session codes are no longer required.
+- Links with `?show-recent=1` open the newest submission detail page after authentication.
 - MCQ, True/False, and FIB questions are auto-graded.
 - Short-answer responses are stored with `isCorrect: null` for teacher review.
 - Quiz sessions with `questionBankListId` use the teacher-selected list. If `studentDifficultyLevels` has an entry for the verified admission number, only that difficulty is used. If `randomQuestionTypeCounts` is set, selection is random within each requested type; otherwise every matching listed published question is used.
 - Published question reads use `qb_questions_v1 where status == "published"` when no quiz session list is selected.
 - Student submission history uses `studentKey = sectionId_admissionNo`.
 - A student can have only one submission per quiz session; duplicate attempts are blocked before write.
+
+## Page tours
+
+Each page has its own Tour button walkthrough: sign-in, dashboard, submission history, and submission details. On the dashboard, the Tour button adapts to quiz setup, the quiz runner, or the result view. Automatic tour opt-out is saved separately for each page; the Tour button can always relaunch it. Steps targeting hidden or missing controls are skipped.
+
+Dashboard quiz session colors prioritize submitted attempts (green), then overdue
+(red), due today or within 3 calendar days (orange), and due in 4–6 calendar days
+(yellow). Calendar days use the student's local timezone. Sessions without a due
+date or due more than 6 days away retain the default card color. Status labels
+accompany colors.

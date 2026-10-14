@@ -639,6 +639,23 @@ a.btn {
     line-height: 1.5;
 }
 
+.translated-answer-panel {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 10px 12px;
+}
+
+.translated-answer-panel summary {
+    color: var(--primary-dark);
+    cursor: pointer;
+    font-weight: 800;
+}
+
+.translated-answer-panel .rich-content {
+    margin-top: 10px;
+}
+
 .ai-assessment-detail {
     display: grid;
     gap: 12px;
@@ -1355,3 +1372,37 @@ a.btn {
         grid-template-columns: 1fr;
     }
 }
+
+.session-list { display: grid; gap: 12px; margin-top: 20px; }
+.session-card { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 20px; text-align: left; background: var(--panel, #fff); color: inherit; border: 1px solid #dbe2ea; border-radius: 14px; cursor: pointer; font: inherit; }
+.session-card:hover { border-color: #2563eb; background: #eff6ff; }
+.session-card:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+.session-card strong { font-size: 1.1rem; }
+.session-card span { font-size: .9rem; }
+
+.submission-link { color: inherit; text-decoration: none; border-radius: 8px; }
+.submission-link:hover strong { color: var(--primary, #2563eb); text-decoration: underline; }
+.submission-link:focus-visible { outline: 3px solid var(--primary, #2563eb); outline-offset: 5px; }
+
+.header-brand h1 a { color: inherit; text-decoration: none; }
+.topbar .btn[aria-current="page"] { background: #245779; border-color: #80b9df; color: #fff; }
+.header-student { max-width: 220px; overflow-wrap: anywhere; font-size: 14px; padding: 4px 8px; }
+.header-error { flex-basis: 100%; color: #ffb4b4 !important; }
+.quiz-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; position: relative; }
+@media (max-width: 620px) {
+    .topbar .topbar-actions { justify-content: flex-start; }
+    .topbar .topbar-actions .btn { width: auto; }
+    .header-student { flex-basis: 100%; order: -1; padding-left: 0; max-width: none; }
+}
+
+.session-dates { display: flex; flex-wrap: wrap; column-gap: 24px; row-gap: 6px; }
+
+.session-card.session-submitted { background: #ecfdf3; border-color: #22a65a; color: #14532d; }
+.session-card.session-overdue { background: #fef2f2; border-color: #dc4c4c; color: #7f1d1d; }
+.session-card.session-due-soon { background: #fff3e6; border-color: #eb8c25; color: #7c350b; }
+.session-card.session-due-week { background: #fffce0; border-color: #d1ad16; color: #66500b; }
+.session-card.session-submitted:hover { background: #dcfce7; }
+.session-card.session-overdue:hover { background: #fee2e2; }
+.session-card.session-due-soon:hover { background: #ffedd5; }
+.session-card.session-due-week:hover { background: #fef9c3; }
+.session-card .session-status { font-weight: 600; }

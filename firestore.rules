@@ -1,36 +1,52 @@
 rules_version = '2';
 
+// Student app rules: merge with the project's existing teacher/admin rules.
 service cloud.firestore {
   match /databases/{database}/documents {
+    function profile() {
+      return get(/databases/$(database)/documents/studentProfiles/$(request.auth.uid)).data;
+    }
+    function activeStudent() {
+      return request.auth != null && profile().active == true
+        && profile().authUid == request.auth.uid;
+    }
+    match /studentProfiles/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list, write: if false;
+    }
     match /classrooms/{classroomId} {
-      allow read: if true;
+      allow read: if activeStudent() && resource.data.sectionId == profile().sectionId;
       allow write: if false;
     }
-
     match /classSections/{sectionId}/students/{studentId} {
-      allow read: if true;
+      allow read, write: if false;
+    }
+    match /qb_taxonomy_v1/{taxonomyId} {
+      allow read: if activeStudent();
       allow write: if false;
     }
-
     match /qb_questions_v1/{questionId} {
-      allow read: if resource.data.status == 'published';
+      allow read: if activeStudent() && resource.data.status == 'published';
       allow write: if false;
     }
-
     match /qb_lists_v1/{listId} {
-      allow read: if true;
+      allow read: if activeStudent();
       allow write: if false;
     }
-
     match /qb_quiz_submissions_v1/{submissionId} {
-      allow read: if resource.data.studentKey is string;
-
-      allow create: if request.resource.data.studentKey is string
-        && request.resource.data.sectionId is string
-        && request.resource.data.admissionNo is string
+      // Also permits the student's historical submissions without authUid.
+      allow read: if activeStudent() && resource.data.studentKey == profile().studentKey;
+      allow create: if activeStudent()
+        && request.resource.data.authUid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.studentKey == profile().studentKey
+        && request.resource.data.sectionId == profile().sectionId
+        && request.resource.data.admissionNo == profile().admissionNo
         && request.resource.data.answers is list
-        && request.resource.data.questionCount is int;
-
+        && request.resource.data.questionCount is int
+        && get(/databases/$(database)/documents/classrooms/$(request.resource.data.classroomId)).data.sectionId == profile().sectionId
+        && get(/databases/$(database)/documents/classrooms/$(request.resource.data.classroomId)).data.classEnabled == true
+        && get(/databases/$(database)/documents/classrooms/$(request.resource.data.classroomId)).data.get('archived', false) != true;
       allow update, delete: if false;
     }
   }
