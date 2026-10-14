@@ -445,7 +445,7 @@ a.btn {
 
 .quiz-layout {
     display: grid;
-    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 14px;
 }
 
@@ -484,9 +484,20 @@ a.btn {
 }
 
 .nav-panel {
-    align-self: start;
-    position: sticky;
-    top: 14px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 12px 20px;
+}
+
+.nav-panel .section-title,
+.nav-panel .quiz-summary,
+.nav-panel .selection-memory-panel {
+    margin: 0;
+}
+
+.nav-panel .selection-memory-panel {
+    grid-column: 1 / -1;
 }
 
 .selection-memory-panel {
@@ -1353,7 +1364,7 @@ a.btn {
     }
 
     .nav-panel {
-        position: static;
+        grid-template-columns: minmax(0, 1fr);
     }
 
 }

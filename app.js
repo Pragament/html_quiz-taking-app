@@ -59,7 +59,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.14.9';
+const APP_VERSION = '2026.10.14.10';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -569,6 +569,7 @@ async function handleStudentAuth(user) {
 async function loadStudentSessions() {
     if (!studentProfile) return;
     const profile = studentProfile;
+    configureLocalPractice();
     showOnly('dashboard');
     els.resetBtn.hidden = true;
     $('sessionList').textContent = 'Loading quiz sessions...';
@@ -596,6 +597,19 @@ async function loadStudentSessions() {
         $('sessionList').textContent = error.message || 'Unable to load quiz sessions. Use Refresh to try again.';
         setStatus('Quiz sessions could not be loaded');
     } finally { $('refreshSessionsBtn').disabled = false; }
+    if (studentProfile === profile && !els.dashboardView.hidden) await loadTaxonomyFilters();
+}
+
+function configureLocalPractice() {
+    session = { ...studentProfile, localPractice: true, classroom: { mode: 'practice' } };
+    loadedQuestions = [];
+    quiz = null;
+    currentIndex = 0;
+    hasSubmittedCurrentSession = false;
+    stopTimer();
+    els.welcomeTitle.textContent = 'Practice without submission';
+    els.classroomLabel.textContent = 'Choose filters and settings to practice. Your answers and results are not saved.';
+    configureSetupForClassroom();
 }
 
 function quizSessionStatus(classroom, submitted, today = new Date()) {
@@ -688,6 +702,7 @@ function configureSetupForClassroom() {
     const showSettings = shouldShowQuizSettings();
     const showAudioSettings = shouldShowAudioQuizSettings();
     const showPracticeSettings = shouldShowPracticeQuizSettings();
+    els.startQuizBtn.textContent = session?.localPractice ? 'Start Practice' : 'Start Quiz';
     els.quizFiltersGroup.hidden = hasClassroomList || hasLockedTaxonomyScope;
     els.quizSettingsGroup.hidden = !showSettings;
     els.instantFeedbackSetting.hidden = !showPracticeSettings;
@@ -742,9 +757,11 @@ function hasClassroomTaxonomyScope() {
 }
 
 async function loadTaxonomyFilters() {
+    const filterSession = session;
     try {
         setStatus('Loading quiz filters...');
         const snap = await getDocs(collection(db, COLLECTIONS.taxonomy));
+        if (session !== filterSession) return;
         taxonomyItems = snap.docs
             .map(taxonomyDoc => normalizeTaxonomyItem(taxonomyDoc.id, taxonomyDoc.data()))
             .filter(item => item.id && item.label && ['class', 'subject', 'chapter'].includes(item.type))
@@ -757,6 +774,7 @@ async function loadTaxonomyFilters() {
         els.chapterFilterField.hidden = true;
         setStatus('Verified. Choose quiz filters and load questions.');
     } catch (error) {
+        if (session !== filterSession) return;
         els.questionLoadSummary.textContent = error.message || 'Unable to load class, subject, and chapter filters.';
         setStatus('Quiz filter load failed');
     }
@@ -1370,6 +1388,7 @@ async function startQuiz() {
     const audioSettings = shouldShowAudioQuizSettings();
     const practiceSettings = shouldShowPracticeQuizSettings();
     quiz = {
+        localPractice: session.localPractice === true,
         questions: selected,
         answers: selected.map(q => emptyAnswer(q)),
         instantFeedback: practiceSettings,
@@ -1804,7 +1823,7 @@ function renderSelectionMemory() {
 }
 
 function renderExplanationFrame(explanationUrl) {
-    if (!validExplanationUrl(explanationUrl)) {
+    if (!shouldShowPracticeQuizSettings() || !validExplanationUrl(explanationUrl)) {
         els.quizPanel.classList.remove('has-explanation');
         els.explanationFramePanel.hidden = true;
         els.explanationFrame.removeAttribute('src');
@@ -1972,7 +1991,7 @@ function disableAnswerInputs() {
 
 function nextQuestionButtonLabel() {
     if (quiz.instantFeedback && !quiz.feedbackShown[currentIndex]) return 'Check Answer';
-    return currentIndex === quiz.questions.length - 1 ? 'Submit Quiz' : 'Next';
+    return currentIndex === quiz.questions.length - 1 ? (quiz.localPractice ? 'Finish Practice' : 'Submit Quiz') : 'Next';
 }
 
 function answerInputHtml(question, answer) {
@@ -2157,13 +2176,21 @@ async function submitQuiz() {
     if (!quiz || quiz.submitted) return;
     saveCurrentAnswer();
     const unanswered = quiz.answers.filter((a, i) => !isAnswered(quiz.questions[i], a)).length;
-    if (unanswered && !confirm(`${unanswered} question(s) are unanswered. Submit anyway?`)) return;
+    if (unanswered && !confirm(`${unanswered} question(s) are unanswered. ${quiz.localPractice ? 'Finish practice' : 'Submit'} anyway?`)) return;
     const gradedAnswers = await Promise.all(quiz.questions.map((question, index) => {
         if (quiz.feedback[index]) return quiz.feedback[index];
         return gradeAnswerWithOfflineAi(question, quiz.answers[index]);
     }));
     const gradable = gradedAnswers.filter(a => a.isCorrect !== null);
     const correct = gradable.filter(a => a.isCorrect).length;
+    if (quiz.localPractice) {
+        quiz.submitted = true;
+        stopTimer();
+        renderResult({ correctCount: correct, gradableCount: gradable.length, answers: gradedAnswers });
+        showOnly('result');
+        setStatus('Practice complete. Your answers and results were not saved.');
+        return;
+    }
     const submission = {
         authUid: session.authUid,
         email: session.email,
@@ -2639,7 +2666,9 @@ function cosineSimilarity(a, b) {
 }
 
 function renderResult(submission) {
-    els.resultSummary.textContent = `${submission.correctCount} correct out of ${submission.gradableCount} auto-graded questions. Short answers are stored for teacher review.`;
+    $('resultTitle').textContent = quiz?.localPractice ? 'Practice Complete' : 'Submission Complete';
+    $('resultStatus').textContent = quiz?.localPractice ? 'Practice' : 'Submitted';
+    els.resultSummary.textContent = `${submission.correctCount} correct out of ${submission.gradableCount} auto-graded questions. ${quiz?.localPractice ? 'Your answers and results were not saved.' : 'Short answers are stored for teacher review.'}`;
     els.reviewList.innerHTML = submission.answers.map((answer, index) => `
         <article class="review-card">
             <div class="review-head">
@@ -2681,7 +2710,7 @@ async function renderRich(root) {
 
 function showOnly(view) {
     els.dashboardView.hidden = view !== 'dashboard';
-    els.setupView.hidden = view !== 'setup';
+    els.setupView.hidden = view !== 'setup' && !(view === 'dashboard' && session?.localPractice);
     els.quizView.hidden = view !== 'quiz';
     els.resultView.hidden = view !== 'result';
 }
