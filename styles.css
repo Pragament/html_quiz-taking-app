@@ -360,6 +360,17 @@ a.btn {
     padding: 8px 10px;
 }
 
+.password-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.password-field input {
+    min-width: 0;
+}
+
 .field input[type="checkbox"],
 .checkbox-field input[type="checkbox"] {
     width: 18px;

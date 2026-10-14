@@ -7,6 +7,8 @@ const form = document.getElementById('loginForm');
 const button = document.getElementById('verifyBtn');
 const status = document.getElementById('loginStatus');
 const errorBox = document.getElementById('loginError');
+const passwordInput = document.getElementById('passwordInput');
+const togglePasswordBtn = document.getElementById('togglePasswordBtn');
 let generation = 0;
 initializeTours('login');
 
@@ -57,8 +59,8 @@ form.addEventListener('submit', async event => {
     try {
         await signInWithEmailAndPassword(auth,
             document.getElementById('emailInput').value.trim().toLowerCase(),
-            document.getElementById('passwordInput').value);
-        document.getElementById('passwordInput').value = '';
+            passwordInput.value);
+        passwordInput.value = '';
     } catch (error) {
         showError(['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(error.code)
             ? 'Email or password is incorrect.' : error.code === 'auth/too-many-requests'
@@ -66,4 +68,11 @@ form.addEventListener('submit', async event => {
         status.textContent = 'Sign in failed';
         button.disabled = false;
     }
+});
+
+togglePasswordBtn.addEventListener('click', () => {
+    const shouldShow = passwordInput.type === 'password';
+    passwordInput.type = shouldShow ? 'text' : 'password';
+    togglePasswordBtn.textContent = shouldShow ? 'Hide' : 'Show';
+    togglePasswordBtn.setAttribute('aria-pressed', String(shouldShow));
 });
