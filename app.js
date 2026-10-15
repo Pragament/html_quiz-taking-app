@@ -134,7 +134,7 @@ function bindEvents() {
     $('pausePracticeBtn').addEventListener('click', pausePractice);
     $('savedPracticeList').addEventListener('click', event => {
         const button = event.target.closest('[data-session-id]');
-        if (button) openQuizSession(button.dataset.sessionId);
+        if (button) openQuizSession(button.dataset.sessionId, { restart: button.dataset.practiceAction === 'restart' });
     });
     ['input', 'change'].forEach(type => els.answerArea.addEventListener(type, () => {
         if (!canSavePracticeProgress() || quiz.completing) return;
@@ -615,7 +615,15 @@ async function loadStudentSessions() {
         if (studentProfile !== profile) return;
         practiceDrafts = new Map(submissions.filter(isPracticeDraft).map(item => [item.classroomId, item]));
         $('savedPracticeSection').hidden = !practiceDrafts.size;
-        $('savedPracticeList').innerHTML = Array.from(practiceDrafts.values()).map(item => `<button type="button" class="session-card" data-session-id="${esc(item.classroomId)}"><strong>${esc(item.quizSessionLabel || item.classroomId)}</strong><span>Question ${Number(item.currentIndex || 0) + 1} of ${Number(item.questionCount || 0)} · ${item.status === 'paused' ? 'Paused' : 'In progress'}</span><span>Resume Practice →</span></button>`).join('');
+        $('savedPracticeList').innerHTML = Array.from(practiceDrafts.values()).map(item => `
+            <article class="session-card saved-practice-card">
+                <strong>${esc(item.quizSessionLabel || item.classroomId)}</strong>
+                <span>Question ${Number(item.currentIndex || 0) + 1} of ${Number(item.questionCount || 0)} · ${item.status === 'paused' ? 'Paused' : 'In progress'}</span>
+                <div class="actions">
+                    <button type="button" class="btn primary" data-session-id="${esc(item.classroomId)}" data-practice-action="resume">Resume Practice →</button>
+                    <button type="button" class="btn" data-session-id="${esc(item.classroomId)}" data-practice-action="restart">Restart from Beginning</button>
+                </div>
+            </article>`).join('');
         const today = new Date();
         recentSessions = snap.docs.map(item => ({ classroomId: item.id, classroom: item.data() }))
             .filter(item => isPendingQuizSession(item.classroom, submittedClassrooms.has(item.classroomId), today))
@@ -684,8 +692,9 @@ function sessionCreatedMillis(classroom) {
     return classroom.createdAt?.toMillis?.() || Number(classroom.createdDate) || 0;
 }
 
-async function openQuizSession(classroomId) {
+async function openQuizSession(classroomId, { restart = false } = {}) {
     if (!studentProfile || openingSession) return;
+    if (restart && !confirm('Restart this practice session from question 1? Your saved answers and progress for this session will be replaced.')) return;
     openingSession = true;
     const profile = studentProfile;
     try {
@@ -717,7 +726,7 @@ async function openQuizSession(classroomId) {
             els.questionLoadSummary.innerHTML = `You have already submitted this quiz session. <a href="${esc(detailUrl)}">View your submission</a> to review your answers.`;
             setStatus('Already submitted for this quiz session');
         } else if (shouldShowPracticeQuizSettings() && practiceDrafts.has(classroomId)) {
-            await resumePractice(practiceDrafts.get(classroomId).id);
+            await resumePractice(practiceDrafts.get(classroomId).id, { restart });
         } else if (hasQuizSessionQuestionList() || hasClassroomTaxonomyScope()) {
             await loadPublishedQuestions();
         } else {
@@ -2917,7 +2926,7 @@ async function pausePractice() {
     setStatus('Practice paused. Choose Resume Practice to continue.');
 }
 
-async function resumePractice(id) {
+async function resumePractice(id, { restart = false } = {}) {
     const owner = session;
     const snap = await getDoc(doc(db, COLLECTIONS.submissions, id));
     if (session !== owner || studentProfile?.authUid !== owner.authUid) return;
@@ -2943,10 +2952,20 @@ async function resumePractice(id) {
         throw new Error('The saved practice progress is incomplete.');
     }
     quiz = state.quiz;
-    quiz.startedAt = Date.now() - Math.max(0, state.elapsedMs);
+    if (restart) {
+        quiz.answers = quiz.questions.map(emptyAnswer);
+        quiz.feedback = quiz.questions.map(() => null);
+        quiz.feedbackShown = quiz.questions.map(() => false);
+        quiz.promptRevealed = quiz.questions.map(() => !quiz.listenRespond);
+        quiz.translationChoices = quiz.questions.map(() => '');
+        quiz.memoryApplied = new Set();
+        quiz.performanceMemory = emptyStudentPerformanceMemory();
+        quiz.selectionMemory = null;
+    }
+    quiz.startedAt = Date.now() - (restart ? 0 : Math.max(0, state.elapsedMs));
     delete quiz.pausedAt;
     delete quiz.completing;
-    currentIndex = state.currentIndex;
+    currentIndex = restart ? 0 : state.currentIndex;
     loadedQuestions = quiz.questions;
     hasSubmittedCurrentSession = false;
     $('nextQuestionBtn').disabled = false;
@@ -2956,7 +2975,7 @@ async function resumePractice(id) {
     showOnly('quiz');
     renderSelectionMemory();
     renderQuiz();
-    setStatus('Practice resumed from your saved progress.');
+    setStatus(restart ? 'Practice restarted from question 1.' : 'Practice resumed from your saved progress.');
     await savePracticeProgress();
 }
 

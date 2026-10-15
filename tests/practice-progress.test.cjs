@@ -37,6 +37,8 @@ function setup() {
         setExplanationCollapsed() {}, showOnly: view => { ctx.view = view; }, renderSelectionMemory() {}, renderQuiz() {}
     });
     vm.runInContext(source.slice(source.indexOf('function isPracticeDraft('), source.indexOf('function showOnly(')), ctx);
+    vm.runInContext(source.slice(source.indexOf('function emptyAnswer('), source.indexOf('function renderQuiz(')), ctx);
+    vm.runInContext(source.slice(source.indexOf('function emptyStudentPerformanceMemory('), source.indexOf('function applyAnswerToPerformanceMemory(')), ctx);
     vm.runInContext(source.slice(source.indexOf('function submissionDocId('), source.indexOf('function gradeAnswer(')), ctx);
     return { ctx, records, cache, owner, node };
 }
@@ -73,6 +75,33 @@ test('different practice sessions save into separate submission documents', asyn
     await h.ctx.savePracticeProgress();
     assert.equal(h.records.size, 2);
     assert.deepEqual([...h.records.values()].map(item => item.classroomId), ['practice1', 'practice2']);
+});
+
+test('restart begins at question one with cleared answers, feedback and timer while keeping questions and settings', async () => {
+    const h = setup();
+    await h.ctx.savePracticeProgress();
+    const id = h.ctx.submissionDocId();
+    const other = { untouched: true };
+    h.records.set('another-session', other);
+    await h.ctx.resumePractice(id, { restart: true });
+    assert.equal(h.ctx.currentIndex, 0);
+    assert.deepEqual(Array.from(h.ctx.quiz.questions, q => q.id), ['first', 'second']);
+    assert.deepEqual(Array.from(h.ctx.quiz.answers, a => a.selectedOptions.length), [0, 0]);
+    assert.deepEqual(Array.from(h.ctx.quiz.feedback), [null, null]);
+    assert.deepEqual(Array.from(h.ctx.quiz.feedbackShown), [false, false]);
+    assert.deepEqual(Array.from(h.ctx.quiz.promptRevealed), [false, false]);
+    assert.deepEqual(Array.from(h.ctx.quiz.translationChoices), ['', '']);
+    assert.equal(h.ctx.quiz.memoryApplied.size, 0);
+    assert.equal(h.ctx.quiz.performanceMemory.answers.length, 0);
+    assert.equal(h.ctx.quiz.selectionMemory, null);
+    assert.equal(h.ctx.quiz.listenRespond, true);
+    assert.ok(Date.now() - h.ctx.quiz.startedAt < 1000);
+    assert.equal(h.records.get(id).currentIndex, 0);
+    assert.equal(h.records.get('another-session'), other);
+    h.ctx.quiz = null;
+    await h.ctx.resumePractice(id);
+    assert.equal(h.ctx.currentIndex, 0);
+    assert.equal(h.ctx.quiz.answers[1].selectedOptions.length, 0);
 });
 
 test('autosave is limited to assigned practice, excluding homepage practice and quiz/test modes', async () => {

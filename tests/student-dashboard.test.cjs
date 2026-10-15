@@ -57,7 +57,16 @@ test('saved practice stays pending and appears under resume while completed sess
     assert.equal(h.node('savedPracticeSection').hidden, false);
     assert.match(h.node('savedPracticeList').innerHTML, /Question 3 of 10/);
     assert.match(h.node('savedPracticeList').innerHTML, /Resume Practice/);
+    assert.match(h.node('savedPracticeList').innerHTML, /Restart from Beginning/);
     assert.doesNotMatch(h.node('savedPracticeList').innerHTML, /completed/);
+});
+test('cancelling restart keeps the dashboard and saved progress untouched', async () => {
+    const h = setup();
+    h.ctx.confirm = () => false;
+    await h.ctx.openQuizSession('practice', { restart: true });
+    assert.equal(vm.runInContext('session', h.ctx), null);
+    assert.equal(vm.runInContext('openingSession', h.ctx), false);
+    assert.equal(h.ctx.status, undefined);
 });
 test('dashboard shows an empty state', async () => {
     const h = setup();
