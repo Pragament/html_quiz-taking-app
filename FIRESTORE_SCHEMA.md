@@ -1,6 +1,6 @@
 # Firestore Schema
 
-The quiz app reads existing quiz session/student collections and writes quiz submissions to a prefixed question-bank collection.
+The quiz app reads existing quiz session/student collections and writes quiz submissions and question reactions to prefixed question-bank collections.
 
 ## Existing Collections Read By This App
 
@@ -232,6 +232,38 @@ Assigned sessions in `practice`, `reading_practice`, and `writing_practice` mode
 Unfinished progress is excluded from pending-session completion checks, submission history, reports, and past-performance memory. Final submission replaces the progress document with the completed submission shape above, which remains immutable. Homepage practice does not write progress. A browser backup scoped by authenticated user and session recovers edits made just before refresh while the cloud autosave was pending.
 
 Merge and deploy the practice-draft create/update rules in `firestore.rules` with the existing production rules before enabling cloud pause/resume. They permit updates only to the owner's unfinished assigned practice document and allow a single transition to completed submission; completed submissions cannot be overwritten.
+
+### `qb_reactions_v1`
+
+Stores a student's Like or Dislike for a question independently of quiz submissions. Reactions work in quiz/test modes, assigned practice and homepage practice. Feedback is saved only when the user clicks **Save Feedback**; answering, grading or submitting a quiz does not write a reaction automatically.
+
+Path and deterministic document ID:
+
+```txt
+/qb_reactions_v1/{questionId}__{firebaseAuthUid}
+```
+
+```js
+{
+  questionId: 'qb_questions_v1 document id',
+  userId: 'firebase-auth-uid',
+  value: 'like', // 'like' | 'dislike'
+  sourceType: 'quiz-session',
+  sourceValue: 'classrooms document id', // the assigned quiz session ID
+  comment: 'My answer(s):\nA. The user-selected option', // optional, maximum 2,000 characters
+  updatedAt: Timestamp // serverTimestamp() on every save
+}
+```
+
+One document represents one user's current reaction to one question across sessions. Saving again replaces that document, including switching Like/Dislike or removing a previous comment. Blank comments are omitted. Existing reactions are loaded when the question is shown.
+
+Every new save requires `sourceType` and `sourceValue`. Assigned quizzes and assigned practice sessions use `sourceType: 'quiz-session'` with `sourceValue` set to the `classrooms` quiz session document ID (`session.classroomId`). Homepage practice uses `sourceType: 'practice'` and `sourceValue: 'homepage'`. These fields describe the context of the latest save and are updated if the same question is rated from a different session; they do not create separate per-session reaction documents. Older reactions without source fields remain readable and acquire source fields when saved again. Rules validate the source pair and limit quiz-session sources to active, unarchived sessions in the student's section.
+
+The editable comment starts with the user's current answer(s): selected MCQ options, True/False, labeled filled blanks, or the typed/assembled short answer. It never copies the expected/correct answer. Users may edit or clear it before saving. Automatic prefill is limited to 2,000 characters. Reactions are independent of practice progress and completed-submission reporting.
+
+The student rules permit reading one's own reactions and creating/updating only the deterministic document for the authenticated UID and a published question. They enforce the Like/Dislike enum, a server timestamp, the optional comment length, and the exact supported field set. Other students' reactions cannot be read or changed, and student deletes are denied. Teacher/admin access must be merged with the project's existing rules; it is not granted by this student app's sample rules.
+
+To list a student's reactions, query `qb_reactions_v1 where userId == firebaseAuthUid`. Direct per-question reads use the deterministic ID and need no additional composite index. Merge/deploy the updated `firestore.rules` before enabling reaction writes in production.
 
 ## Query Patterns
 

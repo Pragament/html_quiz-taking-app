@@ -20,7 +20,8 @@ const COLLECTIONS = {
     questionLists: 'qb_lists_v1',
     questions: 'qb_questions_v1',
     taxonomy: 'qb_taxonomy_v1',
-    submissions: 'qb_quiz_submissions_v1'
+    submissions: 'qb_quiz_submissions_v1',
+    reactions: 'qb_reactions_v1'
 };
 
 const TYPE_LABELS = {
@@ -46,6 +47,7 @@ let practiceDrafts = new Map();
 let practiceSaveTimer = null;
 let practiceSaveQueue = Promise.resolve();
 let practiceSavingAction = false;
+const questionReactions = new Map();
 let taxonomyItems = [];
 let taxonomyById = new Map();
 let speechVoices = [];
@@ -63,7 +65,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.14.11';
+const APP_VERSION = '2026.10.16.1';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -131,6 +133,27 @@ initializeSpeechControls();
 preloadOfflineAiModels();
 onAuthStateChanged(auth, handleStudentAuth);
 function bindEvents() {
+    $('questionReactionPanel').addEventListener('click', event => {
+        if (event.target.closest('[data-retry-reaction]')) {
+            questionReactions.delete(currentReactionKey());
+            renderQuestionReaction();
+            return;
+        }
+        const choice = event.target.closest('[data-question-reaction]');
+        if (choice) chooseQuestionReaction(choice.dataset.questionReaction);
+        if (event.target.closest('[data-save-reaction]')) saveQuestionReaction();
+    });
+    $('questionReactionPanel').addEventListener('input', event => {
+        if (event.target.id !== 'reactionComment') return;
+        const reaction = questionReactions.get(currentReactionKey());
+        if (reaction) {
+            reaction.comment = event.target.value;
+            reaction.commentEdited = true;
+            reaction.saved = false;
+            const status = event.currentTarget.querySelector('[role="status"]');
+            if (status) status.textContent = '';
+        }
+    });
     $('pausePracticeBtn').addEventListener('click', pausePractice);
     $('savedPracticeList').addEventListener('click', event => {
         const button = event.target.closest('[data-session-id]');
@@ -557,6 +580,7 @@ function offlineAiDetailsCopy() {
 async function handleStudentAuth(user) {
     const generation = ++authGeneration;
     studentProfile = null;
+    questionReactions.clear();
     session = null;
     recentSessions = [];
     loadedQuestions = [];
@@ -1570,10 +1594,7 @@ function questionShortAnswerText(question, language = '') {
 }
 
 function currentShortAnswerWordOptions(question) {
-    const language = currentTranslationLanguage(question);
-    return language && question.shortAnswerTranslationWordOptions?.[language]?.length
-        ? question.shortAnswerTranslationWordOptions[language]
-        : question.shortAnswerWordOptions || [];
+    return question.shortAnswerWordOptions || [];
 }
 
 function buildFibChoiceOptions(question) {
@@ -1631,6 +1652,7 @@ function renderQuiz() {
     els.questionPrompt.hidden = quiz.listenRespond && !quiz.promptRevealed[currentIndex];
     els.answerArea.innerHTML = answerInputHtml(question, answer);
     renderInstantFeedbackPanel();
+    renderQuestionReaction();
     if (quiz.instantFeedback && quiz.feedbackShown[currentIndex]) {
         disableAnswerInputs();
     }
@@ -1689,12 +1711,20 @@ function renderTranslationControl(question) {
 function translatedShortAnswerPanel(question) {
     if (!quiz.showTranslatedShortAnswer || question.type !== 'short_answer') return '';
     const language = currentTranslationLanguage(question);
-    const answer = language ? questionTranslation(question, language)?.answer || '' : '';
-    if (!answer) return '';
+    const availableAnswers = Object.entries(question.translations || {})
+        .filter(([, translation]) => translation?.answer?.trim());
+    const selectedAnswers = availableAnswers.filter(([name]) => name === language);
+    const answers = selectedAnswers.length ? selectedAnswers : availableAnswers;
+    if (!answers.length) return '';
     return `
         <details class="translated-answer-panel">
             <summary>View translated answer</summary>
-            <div class="rich-content">${sanitizeRich(answer)}</div>
+            ${answers.map(([name, translation]) => `
+                <div>
+                    <strong>${esc(name)}</strong>
+                    <div class="rich-content">${sanitizeRich(translation.answer)}</div>
+                </div>
+            `).join('')}
         </details>
     `;
 }
@@ -1830,13 +1860,6 @@ function setQuestionTranslation(language) {
     quiz.translationChoices[currentIndex] = selectedLanguage;
     const answer = quiz.answers[currentIndex];
     answer.translationLanguage = selectedLanguage;
-    if (question.type === 'short_answer') {
-        answer.shortAnswerChoiceIndices = [];
-        answer.shortAnswerInsertIndex = 0;
-        if ((answer.shortAnswerMode || 'word_bank') === 'word_bank') {
-            answer.shortAnswer = '';
-        }
-    }
     renderQuiz();
 }
 
@@ -2149,7 +2172,7 @@ function answerInputHtml(question, answer) {
         const mode = answer.shortAnswerMode || 'word_bank';
         const selectedIndices = answer.shortAnswerChoiceIndices || [];
         const wordOptions = currentShortAnswerWordOptions(question);
-        const expectedWords = shortAnswerWords(questionDisplayShortAnswer(question));
+        const expectedWords = shortAnswerWords(question.shortAnswerHtml || '');
         const selectedSet = new Set(selectedIndices);
         const insertIndex = clampShortAnswerInsertIndex(answer.shortAnswerInsertIndex, answer);
         const modeToggle = renderShortAnswerModeToggle(mode);
@@ -2235,6 +2258,7 @@ function saveCurrentAnswer() {
         answer.fibAnswers = Array.from(document.querySelectorAll('.fib-input')).map(input => input.value.trim());
     } else {
         if (quiz.shortAnswerWordBank && currentShortAnswerWordOptions(question)?.length && (answer.shortAnswerMode || 'word_bank') === 'word_bank') {
+            answer.translationLanguage = '';
             updateShortAnswerFromChoices(question, answer);
         } else {
             answer.shortAnswer = $('shortAnswerInput')?.value.trim() || '';
@@ -2816,6 +2840,120 @@ async function renderRich(root) {
         } catch {
             token.innerHTML = '<code>Diagram unavailable</code>';
         }
+    }
+}
+
+function currentReactionKey() {
+    const question = quiz?.questions?.[currentIndex];
+    return question && studentProfile?.authUid ? `${question.id}__${studentProfile.authUid}` : '';
+}
+
+function reactionAnswerComment(question, answer) {
+    let text = '';
+    if (question.type === 'mcq') {
+        const options = questionDisplayOptions(question);
+        text = (answer.selectedOptions || []).map(index => `${String.fromCharCode(65 + index)}. ${stripHtml(options[index] || '')}`).join('\n');
+    } else if (question.type === 'true_false') {
+        text = answer.trueFalseAnswer === true ? 'True' : answer.trueFalseAnswer === false ? 'False' : '';
+    } else if (question.type === 'fib') {
+        text = (answer.fibAnswers || []).map((value, index) => value
+            ? `${question.fibBanks?.[index]?.label || `Blank ${index + 1}`}: ${value}` : '').filter(Boolean).join('\n');
+    } else {
+        text = answer.shortAnswer || '';
+    }
+    return text ? `My answer(s):\n${text}`.slice(0, 2000) : '';
+}
+
+function renderQuestionReaction() {
+    const panel = $('questionReactionPanel');
+    const key = currentReactionKey();
+    if (!key) { panel.innerHTML = ''; return; }
+    let reaction = questionReactions.get(key);
+    if (!reaction) {
+        reaction = { value: '', comment: '', commentEdited: false, loading: true, saving: false, error: '', saved: false };
+        questionReactions.set(key, reaction);
+        loadQuestionReaction(key, reaction);
+    }
+    const disabled = reaction.loading || reaction.saving || reaction.loadFailed;
+    panel.innerHTML = `
+        <strong>Question feedback</strong>
+        <div class="actions">
+            <button type="button" class="btn ${reaction.value === 'like' ? 'primary' : ''}" data-question-reaction="like" aria-pressed="${reaction.value === 'like'}" ${disabled ? 'disabled' : ''}>Like</button>
+            <button type="button" class="btn ${reaction.value === 'dislike' ? 'primary' : ''}" data-question-reaction="dislike" aria-pressed="${reaction.value === 'dislike'}" ${disabled ? 'disabled' : ''}>Dislike</button>
+            ${reaction.loadFailed ? '<button type="button" class="btn" data-retry-reaction>Retry</button>' : ''}
+        </div>
+        ${reaction.value ? `
+            <label class="field">
+                <span>Comment (optional)</span>
+                <textarea id="reactionComment" rows="3" maxlength="2000" ${reaction.saving ? 'disabled' : ''}>${esc(reaction.comment)}</textarea>
+            </label>
+            <button class="btn" type="button" data-save-reaction ${disabled ? 'disabled' : ''}>${reaction.saving ? 'Saving...' : 'Save Feedback'}</button>
+        ` : ''}
+        <span role="status">${esc(reaction.loading ? 'Loading feedback...' : reaction.error || (reaction.saved ? 'Feedback saved' : ''))}</span>
+    `;
+}
+
+async function loadQuestionReaction(key, reaction) {
+    try {
+        const snap = await getDoc(doc(db, COLLECTIONS.reactions, key));
+        const data = snap.exists() ? snap.data() : null;
+        if (data && ['like', 'dislike'].includes(data.value)) {
+            reaction.value = data.value;
+            reaction.comment = data.comment || '';
+            reaction.commentEdited = Object.hasOwn(data, 'comment');
+            reaction.saved = true;
+        }
+    } catch (error) {
+        reaction.loadFailed = true;
+        reaction.error = 'Unable to load feedback. Use Retry to try again.';
+    } finally {
+        reaction.loading = false;
+        if (currentReactionKey() === key) renderQuestionReaction();
+    }
+}
+
+function chooseQuestionReaction(value) {
+    if (!['like', 'dislike'].includes(value)) return;
+    const reaction = questionReactions.get(currentReactionKey());
+    if (!reaction || reaction.loading || reaction.saving || reaction.loadFailed) return;
+    saveCurrentAnswer();
+    if (!reaction.commentEdited) reaction.comment = reactionAnswerComment(quiz.questions[currentIndex], quiz.answers[currentIndex]);
+    reaction.value = value;
+    reaction.saved = false;
+    reaction.error = '';
+    renderQuestionReaction();
+}
+
+async function saveQuestionReaction() {
+    const key = currentReactionKey();
+    const reaction = questionReactions.get(key);
+    if (!reaction || !['like', 'dislike'].includes(reaction.value) || reaction.loading || reaction.saving || reaction.loadFailed) return;
+    const questionId = quiz.questions[currentIndex].id;
+    const userId = studentProfile.authUid;
+    if (!reaction.commentEdited) {
+        saveCurrentAnswer();
+        reaction.comment = reactionAnswerComment(quiz.questions[currentIndex], quiz.answers[currentIndex]);
+    }
+    const comment = reaction.comment.trim();
+    if (comment.length > 2000) { reaction.error = 'Keep the comment within 2,000 characters.'; renderQuestionReaction(); return; }
+    reaction.saving = true;
+    reaction.error = '';
+    renderQuestionReaction();
+    try {
+        await setDoc(doc(db, COLLECTIONS.reactions, key), {
+            questionId, userId, value: reaction.value,
+            sourceType: session?.classroomId ? 'quiz-session' : 'practice',
+            sourceValue: session?.classroomId || 'homepage',
+            ...(comment ? { comment } : {}), updatedAt: serverTimestamp()
+        });
+        reaction.saved = true;
+        reaction.commentEdited = true;
+    } catch (error) {
+        reaction.saved = false;
+        reaction.error = 'Feedback could not be saved. Use Save Feedback to retry.';
+    } finally {
+        reaction.saving = false;
+        if (currentReactionKey() === key) renderQuestionReaction();
     }
 }
 

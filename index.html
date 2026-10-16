@@ -6,13 +6,13 @@
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
-    <link rel="stylesheet" href="styles.css?v=2026.10.14.11" />
+    <link rel="stylesheet" href="styles.css?v=2026.10.16.1" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
-    <div class="app-version-badge">v2026.10.14.11</div>
+    <div class="app-version-badge">v2026.10.16.1</div>
     <header class="topbar" id="appHeader"></header>
 
     <main class="app-shell">
@@ -194,6 +194,7 @@
                     <div id="questionPrompt" class="rich-content"></div>
                     <div id="answerArea" class="answer-area"></div>
                     <div id="instantFeedbackPanel" class="instant-feedback-panel" hidden></div>
+                    <section id="questionReactionPanel" class="question-reaction-panel" aria-label="Question feedback"></section>
                     <div class="actions spread">
                         <button class="btn primary" id="nextQuestionBtn">Next</button>
                     </div>
@@ -214,6 +215,6 @@
     </main>
 
     <div id="toast" class="toast"></div>
-    <script type="module" src="app.js?v=2026.10.14.11"></script>
+    <script type="module" src="app.js?v=2026.10.16.1"></script>
 </body>
 </html>

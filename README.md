@@ -30,6 +30,8 @@ Independent responsive quiz-taking app for students. It signs students in with F
 
 ## Firebase setup
 
+Question feedback uses `qb_reactions_v1`: one Like/Dislike per authenticated user and question, with an optional editable comment prefilled from the user's answers. See `FIRESTORE_SCHEMA.md` for fields, deterministic IDs, and access rules. Reactions are saved separately from submissions, including in homepage practice.
+
 Enable Email/Password authentication and provision student accounts with UID-keyed profiles as described in the supplied admin schema. Deploy the student access rules by merging `firestore.rules` with the project's existing teacher/admin rules. These sample rules grant only student access and are not deployed by this change. The backend should keep profile `active` synchronized with account status.
 
 ## Run Locally
