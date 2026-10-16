@@ -60,13 +60,27 @@ test('saved practice stays pending and appears under resume while completed sess
     assert.match(h.node('savedPracticeList').innerHTML, /Restart from Beginning/);
     assert.doesNotMatch(h.node('savedPracticeList').innerHTML, /completed/);
 });
-test('cancelling restart keeps the dashboard and saved progress untouched', async () => {
-    const h = setup();
-    h.ctx.confirm = () => false;
-    await h.ctx.openQuizSession('practice', { restart: true });
-    assert.equal(vm.runInContext('session', h.ctx), null);
-    assert.equal(vm.runInContext('openingSession', h.ctx), false);
-    assert.equal(h.ctx.status, undefined);
+test('restart opens Step 2 settings, loads list or filter choices and preserves the saved attempt until Start', async () => {
+    for (const list of [false, true]) {
+        const h = setup();
+        const draft = { id: 'saved-draft', status: 'paused' };
+        h.ctx.practiceDrafts = new Map([['practice', draft]]);
+        h.ctx.findExistingClassroomSubmissionId = async () => null;
+        h.ctx.shouldShowPracticeQuizSettings = () => true;
+        h.ctx.hasQuizSessionQuestionList = () => list;
+        h.ctx.hasClassroomTaxonomyScope = () => false;
+        h.ctx.resumePractice = async () => { throw new Error('Restart must open setup'); };
+        h.ctx.loadPublishedQuestions = async () => { h.ctx.loadedList = true; };
+        h.ctx.loadTaxonomyFilters = async () => { h.ctx.loadedFilters = true; };
+        h.selected({ sectionId: 's1', classEnabled: true, mode: 'practice' });
+        await h.ctx.openQuizSession('practice', { restart: true });
+        assert.equal(h.ctx.error, undefined);
+        assert.equal(h.ctx.view, 'setup');
+        assert.equal(vm.runInContext('session.restartPractice', h.ctx), true);
+        assert.equal(vm.runInContext('quiz', h.ctx), null);
+        assert.equal(list ? h.ctx.loadedList : h.ctx.loadedFilters, true);
+        assert.equal(h.ctx.practiceDrafts.get('practice'), draft);
+    }
 });
 test('dashboard shows an empty state', async () => {
     const h = setup();

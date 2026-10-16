@@ -694,7 +694,6 @@ function sessionCreatedMillis(classroom) {
 
 async function openQuizSession(classroomId, { restart = false } = {}) {
     if (!studentProfile || openingSession) return;
-    if (restart && !confirm('Restart this practice session from question 1? Your saved answers and progress for this session will be replaced.')) return;
     openingSession = true;
     const profile = studentProfile;
     try {
@@ -707,7 +706,7 @@ async function openQuizSession(classroomId, { restart = false } = {}) {
         if (!isPendingQuizSession(classroom, false)) {
             throw new Error('This quiz session is no longer pending. Refresh the dashboard.');
         }
-        session = { ...profile, classroomId, classroom };
+        session = { ...profile, classroomId, classroom, restartPractice: restart };
         loadedQuestions = [];
         quiz = null;
         currentIndex = 0;
@@ -725,8 +724,8 @@ async function openQuizSession(classroomId, { restart = false } = {}) {
             const detailUrl = `submission.html?${new URLSearchParams({ id: existingSubmissionId })}`;
             els.questionLoadSummary.innerHTML = `You have already submitted this quiz session. <a href="${esc(detailUrl)}">View your submission</a> to review your answers.`;
             setStatus('Already submitted for this quiz session');
-        } else if (shouldShowPracticeQuizSettings() && practiceDrafts.has(classroomId)) {
-            await resumePractice(practiceDrafts.get(classroomId).id, { restart });
+        } else if (!restart && shouldShowPracticeQuizSettings() && practiceDrafts.has(classroomId)) {
+            await resumePractice(practiceDrafts.get(classroomId).id);
         } else if (hasQuizSessionQuestionList() || hasClassroomTaxonomyScope()) {
             await loadPublishedQuestions();
         } else {
@@ -750,7 +749,7 @@ function configureSetupForClassroom() {
     const showAudioSettings = shouldShowAudioQuizSettings();
     const showPracticeSettings = shouldShowPracticeQuizSettings();
     $('aiSelectionMemorySetting').hidden = !showPracticeSettings;
-    els.startQuizBtn.textContent = session?.localPractice ? 'Start Practice' : 'Start Quiz';
+    els.startQuizBtn.textContent = session?.restartPractice ? 'Restart Practice' : session?.localPractice ? 'Start Practice' : 'Start Quiz';
     els.quizFiltersGroup.hidden = hasClassroomList || hasLockedTaxonomyScope;
     els.quizSettingsGroup.hidden = !showSettings;
     els.instantFeedbackSetting.hidden = !showPracticeSettings;
@@ -2926,7 +2925,7 @@ async function pausePractice() {
     setStatus('Practice paused. Choose Resume Practice to continue.');
 }
 
-async function resumePractice(id, { restart = false } = {}) {
+async function resumePractice(id) {
     const owner = session;
     const snap = await getDoc(doc(db, COLLECTIONS.submissions, id));
     if (session !== owner || studentProfile?.authUid !== owner.authUid) return;
@@ -2952,20 +2951,10 @@ async function resumePractice(id, { restart = false } = {}) {
         throw new Error('The saved practice progress is incomplete.');
     }
     quiz = state.quiz;
-    if (restart) {
-        quiz.answers = quiz.questions.map(emptyAnswer);
-        quiz.feedback = quiz.questions.map(() => null);
-        quiz.feedbackShown = quiz.questions.map(() => false);
-        quiz.promptRevealed = quiz.questions.map(() => !quiz.listenRespond);
-        quiz.translationChoices = quiz.questions.map(() => '');
-        quiz.memoryApplied = new Set();
-        quiz.performanceMemory = emptyStudentPerformanceMemory();
-        quiz.selectionMemory = null;
-    }
-    quiz.startedAt = Date.now() - (restart ? 0 : Math.max(0, state.elapsedMs));
+    quiz.startedAt = Date.now() - Math.max(0, state.elapsedMs);
     delete quiz.pausedAt;
     delete quiz.completing;
-    currentIndex = restart ? 0 : state.currentIndex;
+    currentIndex = state.currentIndex;
     loadedQuestions = quiz.questions;
     hasSubmittedCurrentSession = false;
     $('nextQuestionBtn').disabled = false;
@@ -2975,7 +2964,7 @@ async function resumePractice(id, { restart = false } = {}) {
     showOnly('quiz');
     renderSelectionMemory();
     renderQuiz();
-    setStatus(restart ? 'Practice restarted from question 1.' : 'Practice resumed from your saved progress.');
+    setStatus('Practice resumed from your saved progress.');
     await savePracticeProgress();
 }
 

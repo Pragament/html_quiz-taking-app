@@ -77,13 +77,23 @@ test('different practice sessions save into separate submission documents', asyn
     assert.deepEqual([...h.records.values()].map(item => item.classroomId), ['practice1', 'practice2']);
 });
 
-test('restart begins at question one with cleared answers, feedback and timer while keeping questions and settings', async () => {
+test('starting again from Step 2 replaces saved progress with fresh answers and selected settings', async () => {
     const h = setup();
     await h.ctx.savePracticeProgress();
     const id = h.ctx.submissionDocId();
     const other = { untouched: true };
     h.records.set('another-session', other);
-    await h.ctx.resumePractice(id, { restart: true });
+    h.ctx.loadedQuestions = h.ctx.quiz.questions;
+    h.ctx.session.restartPractice = true;
+    h.node('questionCountInput').value = '2';
+    h.node('listenRespondFilter').checked = true;
+    Object.assign(h.ctx, {
+        snapshotQuestion: question => question,
+        shouldShowAudioQuizSettings: () => true,
+        getQuizFilters: () => ({})
+    });
+    vm.runInContext(source.slice(source.indexOf('async function startQuiz('), source.indexOf('function snapshotQuestion(')), h.ctx);
+    await h.ctx.startQuiz();
     assert.equal(h.ctx.currentIndex, 0);
     assert.deepEqual(Array.from(h.ctx.quiz.questions, q => q.id), ['first', 'second']);
     assert.deepEqual(Array.from(h.ctx.quiz.answers, a => a.selectedOptions.length), [0, 0]);
