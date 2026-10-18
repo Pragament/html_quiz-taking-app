@@ -500,6 +500,10 @@ a.btn {
     display: grid;
 }
 
+.feedback-explanation-url {
+    overflow-wrap: anywhere;
+}
+
 .question-reaction-panel {
     display: grid;
     gap: 10px;
@@ -1337,6 +1341,47 @@ a.btn {
     color: var(--muted);
     font-size: 13px;
 }
+
+.practice-coach {
+    position: fixed;
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    z-index: 1050;
+    display: flex;
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 8px;
+    max-width: calc(100vw - 24px);
+}
+
+.coach-launcher { box-shadow: var(--shadow); border-radius: 24px; padding: 10px 18px; }
+.coach-panel {
+    width: min(420px, calc(100vw - 28px));
+    max-height: min(720px, calc(100dvh - 100px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 18px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line-strong);
+    border-radius: 16px;
+    box-shadow: 0 14px 55px rgba(16, 34, 53, .24);
+    display: grid;
+    gap: 14px;
+    overflow-wrap: anywhere;
+}
+.coach-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.coach-heading h2 { margin: 0; font-size: 19px; }
+.coach-heading p, .coach-note { font-size: 12px; line-height: 1.5; color: var(--muted); margin: 4px 0 0; }
+.coach-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+.coach-agent-tools, .coach-results, .coach-speech { display: grid; gap: 10px; }
+.coach-agent-card { background: var(--panel-soft); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.coach-agent-card h3 { margin: 0 0 8px; font-size: 14px; }
+.coach-agent-card p { font-size: 13px; line-height: 1.6; margin: 6px 0; white-space: pre-wrap; }
+.coach-speech { border-top: 1px solid var(--line); padding-top: 12px; }
+.coach-speech summary { font-weight: 700; font-size: 14px; cursor: pointer; margin-bottom: 10px; }
+.coach-speech:not([open]) > :not(summary) { display: none; }
+.coach-selection-action { position: fixed; z-index: 1060; box-shadow: var(--shadow); }
 
 .toast {
     position: fixed;

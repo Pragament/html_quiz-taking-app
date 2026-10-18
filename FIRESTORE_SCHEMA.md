@@ -1,243 +1,219 @@
-# Firestore Schema
+# Firestore schema and access
 
-The quiz app reads existing quiz session/student collections and writes quiz submissions and question reactions to prefixed question-bank collections.
+This describes the current student app and the combined rules in [firestore.rules](firestore.rules). It does not assert that the checked-in rules are deployed. See [the authentication guide](FIREBASE_AUTH_STUDENT_LOGIN.md) for provisioning and the effective teacher/admin and student permissions.
 
-## Existing Collections Read By This App
+## Identity and existing collections
 
-### `classrooms`
-
-Path:
-
-```txt
-/classrooms/{classroomId}
-```
-
-The app first reads `/classrooms/{enteredClassCode}` directly. If that document does not exist, it queries:
-
-```txt
-classrooms where classCode == enteredClassCode
-```
-
-Document shape:
+### `studentProfiles/{authUid}`
 
 ```js
 {
-  classCode: '176260',
+  authUid: 'firebase-auth-uid',
+  email: 'student@school.edu',
+  sectionId: 'section-id',
+  admissionNo: '001',
+  studentKey: 'section-id_001',
+  studentName: 'Student Name',
+  active: true,
+  createdAt: Timestamp, // admin metadata
+  updatedAt: Timestamp  // admin metadata
+}
+```
+
+Login/dashboard directly read the Auth UID document and require an active profile, matching `authUid`, nonempty section/admission number, and the exact derived student key. Preserve admission numbers as strings. The current authenticated user's UID/email are used for new submissions. Name has a display fallback.
+
+Rules permit signed-in users to get their own profile and deny client list/write operations. A trusted backend provisions profiles. The student app never reads roster phone numbers or verifies a quiz code/admission/phone prefix.
+
+### `classrooms/{classroomId}`
+
+```js
+{
+  classCode: '176260', // legacy/display metadata; not entered for student login
+  className: 'Grade 8 Mathematics',
   classEnabled: true,
-  mode: 'quiz',
-  startAt: Timestamp, // optional
-  dueAt: Timestamp, // optional
-  className: 'DSS grade 8 aug 31 quiz',
-  createdBy: '',
-  createdDate: 1788177950135,
-  creatorId: 'SPwA523UClVxTpX5m8XPMu5Imiy1',
-  sectionId: 'QQAP9O4UyvlaYhqz7jdE',
-  sectionName: 'DSS grade 8',
-  questionBankListId: 'qb_lists_v1 document id',
-  randomQuestionTypeCounts: {
-    mcq: 10,
-    fib: 5,
-    short_answer: 3,
-    true_false: 2
-  },
-  studentDifficultyLevels: {
-    '102': 'Easy',
-    '103': 'Hard'
-  },
-  studentDifficultyUpdatedAt: Timestamp
+  archived: false,
+  mode: 'practice',
+  sectionId: 'section-id',
+  sectionName: 'Grade 8',
+  creatorId: 'teacher-auth-uid',
+  startAt: Timestamp, // optional display date, not an access gate
+  dueAt: Timestamp,   // required for the pending-session list
+  createdAt: Timestamp, // optional; preferred creation display date
+  createdDate: 1788177950135, // fallback creation date, milliseconds
+  questionBankListId: 'list-id', // optional
+  classId: 'class-taxonomy-id', // optional saved scope
+  subjectId: 'subject-taxonomy-id',
+  chapterId: 'chapter-taxonomy-id',
+  randomQuestionTypeCounts: { mcq: 10, fib: 5, short_answer: 3, true_false: 2 },
+  studentDifficultyLevels: { '001': 'Easy', '002': 'Hard' },
+  studentDifficultyUpdatedAt: Timestamp // teacher metadata
 }
 ```
 
-Important fields:
+The dashboard queries `classrooms where sectionId == profile.sectionId`, then filters enabled, unarchived, not-completed sessions with a valid `dueAt` today or later. It sorts by `dueAt` ascending using the browser's local calendar day for overdue checks. A future `startAt` does not delay access. Missing/invalid due dates are excluded, even though generic date-display helpers have fallback labels. Creation timestamps are used for display, not session sorting.
 
-- `classCode` - student-entered quiz session code.
-- `classEnabled` - must be exactly `true` for login.
-- `mode` - quiz session mode. Practice settings are shown only for `practice`, `reading_practice`, and `writing_practice`.
-- `sectionId` - points to the student subcollection.
-- `className` and `sectionName` - shown after verification.
-- `questionBankListId` - optional reference to a private question list selected by the teacher. When present, the quiz app loads only that quiz session list's published questions in `questionIds` order.
-- `randomQuestionTypeCounts` - optional per-type limits for randomly picking questions from the selected question list. Missing or empty means use all listed published questions.
-- `studentDifficultyLevels` - optional admission-number keyed difficulty overrides. Missing student entries use the quiz session default question selection.
-- `studentDifficultyUpdatedAt` - records when the teacher last changed student difficulty overrides.
+Selecting/resuming a session directly reads its document and repeats section/enabled/archived/due checks. Rules grant active students same-section reads; submission writes require an enabled, unarchived same-section classroom. Due/start scheduling is not enforced by those rules.
 
-Session mode values:
-
-| Stored value | Dropdown label |
+| Stored mode | Behavior |
 | --- | --- |
-| `quiz` | Quiz |
-| `practice` | Practice |
-| `wpt` | WPT - Writing Proficiency Test |
-| `rpt` | RPT - Reading Proficiency Test |
-| `reading_practice` | Reading Practice |
-| `writing_practice` | Writing Practice |
+| `quiz`, `wpt`, `rpt` | Random question order; no practice instant feedback, explanation iframe, AI-selection option, or cloud progress |
+| `practice`, `reading_practice`, `writing_practice` | Default loaded/list order, optional AI selection, required instant feedback, answer helpers, explanation panel, and assigned-session autosave |
 
-### `classSections/{sectionId}/students`
+Audio/listen controls and available question translations work in all six modes. Reading/writing practice includes ACTFL metadata in optional adaptive ranking. Homepage practice has no classroom document and saves neither progress nor completed submissions.
 
-Path:
+`questionBankListId` takes precedence over question filters. Listed published questions are loaded in `questionIds` order, filtered by any admission-number difficulty override, and optionally sampled by random per-type counts. The surviving subset keeps list order in default practice; quiz/test mode shuffles it. Optional AI selection can rank and reorder practice questions. With no list, a complete saved class/subject/chapter scope locks those filters and loads automatically; otherwise Step 2 asks for a class and exposes filters.
 
-```txt
-/classSections/{sectionId}/students/{studentDocId}
-```
+### `classSections/{sectionId}` and nested `students/{studentId}`
 
-The app first reads `/classSections/{sectionId}/students/{admissionNo}` directly. If that document does not exist, it queries:
+These support teacher/admin workflows, not student login. Section `members` entries have the shape `{ email: 'lowercase@school.edu', role: 'admin' | 'viewer' }`, used by rule helpers. `schoolAdmins/{uid}` existence supplies the separate school-admin check.
 
-```txt
-classSections/{sectionId}/students where admissionNo == enteredAdmissionNo
-```
+Roster records may contain `admissionNo`, `name`, `phone`, `email`, `authUid`, and `studentKey`. The current student app does not query them. Section admins/viewers and school admins have the operation-specific grants defined in the rules; a student profile's `sectionId` does not itself grant roster access.
 
-Document shape:
+### `qb_taxonomy_v1/{taxonomyId}`
 
-```js
-{
-  admissionNo: '102',
-  name: 'Parunandi Sai Adithya',
-  phone: '8328303045'
-}
-```
+The app reads taxonomy documents and uses `id`, `type`, `label`, `parentId`, `classId`, `subjectId`, and `chapterId` to populate class/subject/chapter choices. `id` comes from the document ID. Recognized app filter types are `class`, `subject`, and `chapter`; rules also permit `topic` metadata.
 
-Important fields:
+Taxonomy is publicly readable under the current rules. Signed-in clients may create/update records with an allowed type and string label; deletes are denied.
 
-- `admissionNo` - student-entered admission number.
-- `phone` - registered phone. The app shows the first 3 digits as a hint, asks the student for only the first 6 digits, and verifies them against this stored value.
-- `name` - saved into quiz submissions as `studentName`.
+### `qb_questions_v1/{questionId}`
 
-### `qb_questions_v1`
+Non-list loads query `status == 'published'`; lists use direct reads of their question IDs and retain published results. Published questions are publicly readable under the current combined rules. Authors have additional read/write permissions for their own questions. Staff verification is optional client filtering, not a required read-rule predicate.
 
-Path:
+Core fields read by the student app include `type`, `promptHtml`, taxonomy IDs, fallback class/subject/chapter labels, and `difficulty`.
 
-```txt
-/qb_questions_v1/{questionId}
-```
+| Type | Answer fields | Assessment |
+| --- | --- | --- |
+| `mcq` | `options: [{ html, correct }]` | Selected option indices must exactly match the correct indices |
+| `true_false` | `trueAnswer` boolean | Boolean match |
+| `fib` | `fibBanks: [{ label, answers: [...] }]` | Each filled blank must match one normalized accepted answer |
+| `short_answer` | `shortAnswerHtml` expected-answer HTML | Local assessment produces `aiReview`, marks, and correctness when gradable |
 
-The quiz app reads published questions:
+Optional fields and helpers:
 
-```txt
-qb_questions_v1 where status == "published"
-```
+- `verified`: the staff-verified filter requires exactly `true`; checked by default for non-list filters.
+- `explanationUrl`: validated HTTP/HTTPS topic explanation URL. Step 2 can require it. Practice embeds it in a collapsible, desktop-resizable panel expanded by default, and shows a link in Instant Feedback. Quiz/test modes hide it.
+- `explanation`: explanation text rendered in practice Instant Feedback and stored on graded answers.
+- `translations`: language-keyed objects containing `question`, `answer`, and/or `options` strings/arrays. Only nonempty translations are offered.
+- `skill`, `actfl_level`, `actfl_sublevel`, `actfl_mode`: metadata included in snapshots and used by reading/writing practice AI ranking. The student app normalizes these strings; it does not enforce a fixed enum through its rules.
 
-Supported question types:
+“View translated answer” obeys its practice setting. Original shows available translated answers with language labels; a selected language shows its translated answer, falling back to available answers when missing. Word banks always use original expected-answer words. Word-bank answers are graded in the original language; typed answers follow the selected language. Generated option banks and translations are part of the question snapshot used during the attempt.
 
-- `mcq` - uses `options`, with one or more `correct: true` options.
-- `true_false` - uses `trueAnswer`.
-- `fib` - uses `fibBanks`, including multiple banks in one question.
-- `short_answer` - stores the student response but does not auto-grade.
-
-Optional learning support fields:
-
-- `skill` - LSRW skill. Supported values: `Listening`, `Speaking`, `Reading`, `Writing`.
-- `actfl_level` - ACTFL proficiency level. Supported values: `Novice Low`, `Novice Mid`, `Novice High`, `Intermediate Low`, `Intermediate Mid`, `Intermediate High`, `Advanced Low`, `Advanced Mid`, `Advanced High`, `Superior`, `Distinguished`.
-- `actfl_sublevel` - ACTFL sublevel. Supported values: `Low`, `Mid`, `High`; leave blank for `Superior` or `Distinguished`.
-- `actfl_mode` - ACTFL communication mode. Supported values: `Interpersonal`, `Interpretive`, `Presentational`.
-- `explanationUrl` - student-facing topic explanation URL. Step 2 can filter to questions with this field. Practice modes embed the URL in a collapsible, resizable panel.
-- `explanation` - explanation text shown in the instant feedback panel when Step 2 instant feedback is enabled.
-- Short-answer instant feedback stores an `aiReview` object on the submitted answer with offline marks, max marks, and the reason for the awarded points.
-
-### `qb_lists_v1`
-
-Path:
-
-```txt
-/qb_lists_v1/{listId}
-```
-
-Document shape:
+### `qb_lists_v1/{listId}`
 
 ```js
 {
   name: 'Favorites',
-  ownerUid: 'firebase-auth-uid',
-  questionIds: [
-    'qb_questions_v1 document id'
-  ],
+  ownerUid: 'teacher-auth-uid',
+  questionIds: ['question-id-1', 'question-id-2'],
   createdAt: Timestamp,
   updatedAt: Timestamp
 }
 ```
 
-Important fields:
+Lists store question document IDs rather than embedded snapshots. Active students can read lists; owners have additional create/update/delete access. An owner-only teacher editor does not make a referenced list unreadable to active students under these rules.
 
-- `ownerUid` - must match the signed-in teacher UID for the list to appear in the quiz session editor.
-- `name` - shown in the quiz session question-list dropdown.
-- `questionIds` - stores question document IDs, not embedded question snapshots. The student quiz app preserves this order when a quiz session references the list.
+## Collections written by the student app
 
-## Collection Written By This App
+The practice-only floating Coach does not add a Firestore collection or document field. Selected text, dictionary/spelling results, sentence suggestions, and speech transcripts remain temporary UI state and are cleared when leaving practice. They are not included in `practiceState`, completed answers, or reactions unless the user separately enters text into those forms. Dictionary/spelling make explicit online word lookups without Firebase identity; browser speech recognition may use its provider's speech service. See the README for service dependencies and browser limitations.
 
-### `qb_quiz_submissions_v1`
+### Completed `qb_quiz_submissions_v1` documents
 
 Path:
 
 ```txt
 /qb_quiz_submissions_v1/{submissionId}
+submissionId = encodeURIComponent(classroomId)__encodeURIComponent(sectionId)__encodeURIComponent(admissionNo)
 ```
-
-New submissions use a deterministic ID:
-
-```txt
-encodeURIComponent(classroomId)__encodeURIComponent(sectionId)__encodeURIComponent(admissionNo)
-```
-
-That gives each admission number at most one submission within a quiz session.
-
-Document shape:
 
 ```js
 {
-  classroomId: '176260',
-  sectionId: 'QQAP9O4UyvlaYhqz7jdE',
-  admissionNo: '102',
-  studentName: 'Parunandi Sai Adithya',
-  studentKey: 'QQAP9O4UyvlaYhqz7jdE_102',
-
-  className: 'IX',
+  authUid: 'firebase-auth-uid',
+  email: 'student@school.edu',
+  classroomId: 'classroom-id',
+  sectionId: 'section-id',
+  admissionNo: '001',
+  studentName: 'Student Name',
+  studentKey: 'section-id_001',
+  quizSessionLabel: 'Grade 8 Mathematics · Grade 8',
+  classId: 'class-taxonomy-id',
+  subjectId: 'subject-taxonomy-id',
+  chapterId: 'chapter-taxonomy-id',
+  className: 'VIII',
   subject: 'Mathematics',
-  chapters: ['Algebra', 'Polynomials'],
+  chapters: ['Prime Factorisation'],
   difficulty: 'Easy',
-
   questionCount: 10,
   answeredCount: 8,
-  gradableCount: 7,
+  gradableCount: 10,
   correctCount: 5,
-
   answers: [
     {
-      questionId: 'question-doc-id',
+      questionId: 'question-id',
       type: 'mcq',
       promptHtml: '<p>Question snapshot</p>',
       displayAnswer: 'Option A',
+      correctAnswer: 'Option A: 120',
       isCorrect: true,
-      correctAnswer: 'Option A',
       selectedOptions: [0],
       fibAnswers: [],
       trueFalseAnswer: null,
-      shortAnswer: ''
+      shortAnswer: '',
+      translationLanguage: '',
+      explanation: 'Explanation text',
+      explanationUrl: 'https://example.com/topic'
+      // Also includes question taxonomy/labels, difficulty and ACTFL metadata.
+      // Short-answer results additionally contain aiReview.
     }
   ],
-
-  submittedAt: Timestamp,
-  submittedAtMillis: 1788264300000
+  submittedAt: Timestamp, // serverTimestamp()
+  submittedAtMillis: 1788177950135 // device milliseconds
 }
 ```
 
-Field notes:
+MCQ, True/False and FIB `isCorrect` values are booleans. Short answers use local assessment with optional cached-model semantic scoring. `aiReview` includes `marks`, `maxMarks`, reasons, and assessment detail; correctness is true at 90% of available marks, false below that, and null when no expected answer is gradable. Reports count non-null answers as gradable. Score displays round to one decimal place without changing stored assessment values.
 
-- `studentKey` is `${sectionId}_${admissionNo}` and is used to load the student's past submissions.
-- `submissionId` is deterministic for new writes so duplicate attempts from the same admission number in the same quiz session are blocked.
-- `answers` stores question and answer snapshots so review still works if the question bank changes later.
-- `isCorrect` is `true` or `false` for MCQ, True/False, and FIB. It is `null` for short answers.
-- `submittedAt` is a server timestamp.
-- `submittedAtMillis` is a device timestamp used for newest-first client sorting.
+The client checks for an existing completed session/student submission and uses the deterministic ID above. Rules validate profile/Auth identity and an enabled, unarchived same-section classroom, but do not enforce that ID format or global uniqueness across alternative IDs.
 
-Assigned sessions in `practice`, `reading_practice`, and `writing_practice` modes also use this same document ID for saved progress before submission. Progress documents include `practiceProgress: true`, `progressVersion: 1`, `status: 'in_progress' | 'paused'`, `currentIndex`, `updatedAtMillis`, and `practiceState` (a JSON string containing question snapshots, raw answers, feedback, settings, elapsed time, and serialized AI memory Maps/Sets). Progress autosaves when answers change or questions advance; Pause saves before returning to the dashboard. Resume restores the stored question order and state rather than selecting questions again.
+Students cannot modify completed/historical submissions through the student update grant. Classroom owners and section admins may make `isAiReviewUpdate` changes: only `answers`, `aiReviewUpdatedAt` (number), `aiReviewUpdatedBy` (Auth UID), and `aiReviewUpdatedByEmail` (Auth email), preserving answer-list length. Deletes are denied.
 
-Unfinished progress is excluded from pending-session completion checks, submission history, reports, and past-performance memory. Final submission replaces the progress document with the completed submission shape above, which remains immutable. Homepage practice does not write progress. A browser backup scoped by authenticated user and session recovers edits made just before refresh while the cloud autosave was pending.
+### Unfinished assigned practice in `qb_quiz_submissions_v1`
 
-Merge and deploy the practice-draft create/update rules in `firestore.rules` with the existing production rules before enabling cloud pause/resume. They permit updates only to the owner's unfinished assigned practice document and allow a single transition to completed submission; completed submissions cannot be overwritten.
+Uses the same session/section/admission document ID as the eventual submission:
+
+```js
+{
+  authUid: 'firebase-auth-uid',
+  email: 'student@school.edu',
+  classroomId: 'classroom-id',
+  sectionId: 'section-id',
+  admissionNo: '001',
+  studentName: 'Student Name',
+  studentKey: 'section-id_001',
+  quizSessionLabel: 'Reading Practice · Grade 8',
+  practiceProgress: true,
+  progressVersion: 1,
+  status: 'in_progress', // 'in_progress' | 'paused'
+  questionCount: 10,
+  currentIndex: 2, // zero-based
+  answers: [/* raw answer state, one per question */],
+  practiceState: '{"quiz":{...},"currentIndex":2,"elapsedMs":32000}',
+  updatedAtMillis: 1788177950135 // device milliseconds
+}
+```
+
+`practiceState` is a JSON string containing the question snapshots/order, raw answers, feedback and feedback-shown flags, reveal/translation choices, helper settings, timing, and AI memory. Maps/Sets are serialized as `{ practiceType: 'Map' | 'Set', entries: [...] }` and restored on resume. Rules require version 1, a snapshot string shorter than 900,000 characters, positive question count, matching raw-answer count, valid current index, and numeric update time. The normal Firestore document-size limit also applies.
+
+Only assigned `practice`, `reading_practice`, and `writing_practice` sessions write this shape. Edits and question transitions autosave; Pause saves before leaving. A failed pause keeps the attempt open. Resume uses stored state instead of reselecting questions and resets the running clock from stored elapsed time. A browser backup keyed by authenticated UID and classroom can recover newer edits made immediately before refresh.
+
+“Restart from Beginning” opens Step 2 and reloads the appropriate list or filters. Saved progress remains until Start/Restart Practice creates fresh answers using the selected settings. Other sessions' progress is unaffected.
+
+Drafts are excluded from completed-history/report queries after loading, pending-session completion checks, duplicate checks, and historical AI memory. Final submission replaces the draft with the completed shape; there is no required `status: 'submitted'` field on completed records. Older completed records lacking `authUid` remain readable by the matching active profile's student key. Homepage practice writes neither shape.
+
+The owner can update an unfinished draft while retaining UID, student key, and classroom, or transition it to a completed submission with timestamps. The student draft grant cannot reopen a completed record. Teacher/admin review grants are separate.
 
 ### `qb_reactions_v1`
 
-Stores a student's Like or Dislike for a question independently of quiz submissions. Reactions work in quiz/test modes, assigned practice and homepage practice. Feedback is saved only when the user clicks **Save Feedback**; answering, grading or submitting a quiz does not write a reaction automatically.
-
-Path and deterministic document ID:
+The student app uses:
 
 ```txt
 /qb_reactions_v1/{questionId}__{firebaseAuthUid}
@@ -245,78 +221,43 @@ Path and deterministic document ID:
 
 ```js
 {
-  questionId: 'qb_questions_v1 document id',
+  questionId: 'qb_questions_v1-document-id',
   userId: 'firebase-auth-uid',
   value: 'like', // 'like' | 'dislike'
   sourceType: 'quiz-session',
-  sourceValue: 'classrooms document id', // the assigned quiz session ID
-  comment: 'My answer(s):\nA. The user-selected option', // optional, maximum 2,000 characters
-  updatedAt: Timestamp // serverTimestamp() on every save
+  sourceValue: 'classrooms-document-id',
+  comment: 'My answer(s):\nA. My selected option', // optional; up to 2,000 characters
+  updatedAt: Timestamp // serverTimestamp() on each save
 }
 ```
 
-One document represents one user's current reaction to one question across sessions. Saving again replaces that document, including switching Like/Dislike or removing a previous comment. Blank comments are omitted. Existing reactions are loaded when the question is shown.
+Assigned quizzes/practice use `'quiz-session'` / classroom ID. Homepage practice uses `'practice'` / `'homepage'`. Source fields describe the latest save; the ID remains one reaction per user/question across sessions. Older double-underscore reactions lacking source metadata can be read and gain it on the next save.
 
-Every new save requires `sourceType` and `sourceValue`. Assigned quizzes and assigned practice sessions use `sourceType: 'quiz-session'` with `sourceValue` set to the `classrooms` quiz session document ID (`session.classroomId`). Homepage practice uses `sourceType: 'practice'` and `sourceValue: 'homepage'`. These fields describe the context of the latest save and are updated if the same question is rated from a different session; they do not create separate per-session reaction documents. Older reactions without source fields remain readable and acquire source fields when saved again. Rules validate the source pair and limit quiz-session sources to active, unarchived sessions in the student's section.
+Like/Dislike opens an optional editable comment prefilled from the user's selected options, True/False, labeled filled blanks, or typed/assembled short answer. Prefill uses only the user's response, is capped at 2,000 characters, and can be edited or cleared. Save Feedback explicitly writes the record; blank comments are omitted, removing any old comment on replacement. Reaction writes are independent of quiz grading/submission and are allowed by the UI even in homepage practice.
 
-The editable comment starts with the user's current answer(s): selected MCQ options, True/False, labeled filled blanks, or the typed/assembled short answer. It never copies the expected/correct answer. Users may edit or clear it before saving. Automatic prefill is limited to 2,000 characters. Reactions are independent of practice progress and completed-submission reporting.
+The student write block validates active profile, UID, the double-underscore ID, published question, allowed value, exact field set, source pair, server timestamp, and comment type/length. Quiz-session sources must be enabled/unarchived and in the profile section.
 
-The student rules permit reading one's own reactions and creating/updating only the deterministic document for the authenticated UID and a published question. They enforce the Like/Dislike enum, a server timestamp, the optional comment length, and the exact supported field set. Other students' reactions cannot be read or changed, and student deletes are denied. Teacher/admin access must be merged with the project's existing rules; it is not granted by this student app's sample rules.
+**Effective combined permissions differ from that stricter block.** The file also contains a legacy reaction block with public reads, signed-in owner writes using `questionId_uid` (one underscore), and owner deletes, plus a source-session reviewer read block. Matching grants are ORed. Consequently reactions are publicly readable, the owner-delete grant remains effective, and strict field/source validation does not cover legacy-ID writes. The current student UI uses only the double-underscore ID and has no delete control. It does not migrate single-underscore reactions from other apps.
 
-To list a student's reactions, query `qb_reactions_v1 where userId == firebaseAuthUid`. Direct per-question reads use the deterministic ID and need no additional composite index. Merge/deploy the updated `firestore.rules` before enabling reaction writes in production.
+## Queries and indexes actually used
 
-## Query Patterns
+| Operation | Read/query |
+| --- | --- |
+| Student profile | Direct `studentProfiles/{authUid}` |
+| Dashboard sessions | `classrooms where sectionId == profile.sectionId` |
+| Session revalidation | Direct `classrooms/{classroomId}` |
+| Taxonomy filters | Read `qb_taxonomy_v1` collection |
+| Teacher list | Direct `qb_lists_v1/{questionBankListId}` |
+| Listed questions | Direct `qb_questions_v1/{questionId}` for each list entry |
+| Non-list questions | `qb_questions_v1 where status == 'published'` |
+| History, drafts, duplicate checks, past AI memory | `qb_quiz_submissions_v1 where studentKey == profile.studentKey`, with purpose-specific client filtering |
+| Submission detail / progress resume | Direct `qb_quiz_submissions_v1/{submissionId}` |
+| Current question reaction | Direct `qb_reactions_v1/{questionId}__{authUid}` |
 
-- Quiz session direct read: `/classrooms/{classCode}`
-- Quiz session fallback query: `classrooms where classCode == enteredCode`
-- Student direct read: `/classSections/{sectionId}/students/{admissionNo}`
-- Student fallback query: `students where admissionNo == enteredAdmissionNo`
-- Question list direct read: `/qb_lists_v1/{questionBankListId}`
-- Listed question direct reads: `/qb_questions_v1/{questionId}` for each list `questionIds` entry
-- Question read: `qb_questions_v1 where status == "published"`
-- Submission history: `qb_quiz_submissions_v1 where studentKey == verifiedStudentKey`
+The app sorts and applies most filters client-side; it does not require a composite query index for these reads. Standard single-field indexes on `sectionId`, `status`, and `studentKey` must remain enabled. A separate consumer can query reactions by `userId` or quiz-session `sourceType`/`sourceValue`; the student app currently uses direct reaction reads. Multi-field/order-by queries added by other apps may need their own indexes.
 
-## Suggested Indexes
+## Rules and rollout
 
-The current app keeps sorting and most filtering client-side. Optional future indexes:
+The checked-in file already combines student and teacher/admin access. Taxonomy and published questions are public; section membership, creator IDs, list ownership, and school-admin documents govern additional operations. Profile client writes are denied. See [the authorization guide](FIREBASE_AUTH_STUDENT_LOGIN.md#effective-checked-in-permissions) before interpreting stricter individual blocks as the entire access policy.
 
-```txt
-classrooms:
-  classCode ASC
-
-classSections/{sectionId}/students:
-  admissionNo ASC
-
-qb_questions_v1:
-  status ASC
-
-qb_quiz_submissions_v1:
-  studentKey ASC
-  submittedAtMillis DESC
-```
-
-## Authenticated student dashboard
-
-The student homepage uses Firebase Authentication Email/Password and directly reads
-`studentProfiles/{currentUser.uid}`. Profiles must contain matching `authUid`,
-`active: true`, `sectionId`, string `admissionNo`, `studentName`, and
-`studentKey = sectionId_admissionNo`, as provisioned by the admin account service.
-No roster queries or phone verification are used by the student app.
-
-The dashboard queries `classrooms where sectionId == profile.sectionId`, excludes
-sessions with `classEnabled !== true` or `archived === true`, and sorts client-side
-by `createdAt`, falling back to `createdDate`. This uses the single-field sectionId
-index. Selecting a session rechecks its section and availability before quiz setup.
-
-New `qb_quiz_submissions_v1` documents additionally include `authUid` and `email`.
-Submission IDs retain the existing session/section/admission format. History and
-duplicate checks query the authenticated profile's `studentKey` to preserve access
-to historical submissions. The sample rules authorize these reads against the
-active profile and constrain new submission identity fields to that profile.
-
-Merge the sample student rules with existing teacher/admin rules before deployment.
-
-Quiz session cards display optional `classrooms.startAt` and `classrooms.dueAt`
-as date and time in the student's browser locale. Missing values display
-"Not scheduled" and "No due date", respectively. These fields are informational
-on the dashboard; session access continues to follow enabled and archived state.
+Review and deploy the complete intended rules through the project's Firebase deployment process. Git commits and documentation updates do not deploy rules. App tests mock Firestore; emulator tests must exercise the combined file, including public and legacy grants, not only the student additions.

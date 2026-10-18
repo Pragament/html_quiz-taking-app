@@ -1,72 +1,105 @@
 # Quiz Activity App
 
-Independent responsive quiz-taking app for students. It signs students in with Firebase email/password and loads their section from `studentProfiles/{authUid}`, loads quiz-session question-list questions or published question bank questions, runs the quiz from a local in-memory snapshot after Start, and writes attempts to `qb_quiz_submissions_v1`.
+Responsive student quiz app using Firebase Authentication and Firestore. Students sign in with school email/password accounts, open assigned sessions from their section dashboard, or use homepage practice. Questions run from an in-memory snapshot after Start. Assigned practice progress, completed submissions, and explicitly saved question reactions use separate document shapes.
 
-## Files
+## Files and documentation
 
-- `login.html` / `login.js` - student email/password sign-in.
-- `index.html` - student dashboard, quiz setup, quiz runner, and result.
-- `firebase.js` - shared Firebase configuration and authentication redirect.
-- `header.js` - consistent signed-in navigation and student identity across the dashboard, submissions list, and submission detail pages.
-- `submissions.html` - past-submissions list and student progress report.
-- `submission.html?id=<submissionId>` - dedicated authenticated submission detail page, including answer review, review filters, and AI feedback.
-- `styles.css` - responsive phone, tablet, and desktop layout.
-- `app.js` - Firebase reads/writes, student authentication, section dashboard, quiz state, and grading.
-- `submissions.js` - Firebase read and detailed answer review for the standalone past-submissions page.
-- `FIRESTORE_SCHEMA.md` - collection and document schema notes.
-- `firestore.rules` - starter rules for quiz-related access.
+- `login.html` / `login.js`: email/password sign-in and profile validation.
+- `index.html` / `app.js`: dashboard, Step 2 setup, questions, feedback, pause/resume, and results.
+- `submissions.html`, `submission.html?id=<submissionId>`, and `submissions.js`: completed-submission history, reports, and answer review.
+- `firebase.js`: shared Firebase project configuration, Auth/Firestore instances, and login redirects.
+- `header.js` / `tours.js`: navigation, student identity, sign-out, and page-specific tours.
+- `styles.css`: responsive layout, collapsible explanation panel, and desktop width resizing.
+- [Authentication guide](FIREBASE_AUTH_STUDENT_LOGIN.md): account provisioning, profile checks, and current authorization behavior.
+- [Firestore schema](FIRESTORE_SCHEMA.md): collections, IDs, queries, progress snapshots, reactions, and rule constraints.
+- [Firestore rules](firestore.rules): combined student and teacher/admin permissions. Matching grants are additive; see the authorization notes below.
 
-## Flow
+## Student flow
 
-1. Students sign in at `login.html` with their school email and password using Firebase Authentication. Accounts are provisioned by the school; this app does not register accounts.
-2. The app directly reads `studentProfiles/{currentUser.uid}` and requires an active, valid profile with section, admission number, and student key.
-3. The dashboard queries `classrooms where sectionId == profile.sectionId`, shows only pending quiz sessions that are enabled, unarchived, not yet submitted, and due today or later, then sorts them by due date ascending. No composite index is needed.
-4. Clicking a session rechecks its availability and section, then opens the existing quiz setup. Teacher-selected question lists and sessions with saved class/subject/chapter taxonomy IDs load automatically; other sessions use quiz filters. Quiz Settings show audio/listen controls for `quiz`, `wpt`, and `rpt`, while `practice`, `reading_practice`, and `writing_practice` also show instant feedback and answer-helper settings. In `reading_practice` and `writing_practice`, adaptive question memory also shows and weighs ACTFL skill, level, sublevel, and mode fields.
-5. A previously submitted session is blocked from another attempt. Past Submissions uses the authenticated profile's student key, including historical submissions.
-6. Existing question selection, difficulty overrides, audio, translations, instant feedback, and offline quiz navigation remain available.
-7. Submissions use the existing deterministic session/section/admission document ID and now include `authUid` and `email`.
-8. Dashboard returns from a quiz to the session list. Sign Out ends the Firebase session. Firebase restores login across reloads.
-9. Assigned practice sessions autosave progress in their submission document and support Pause/Resume after refresh, separately for each session. Unfinished progress is excluded from completed submissions and reports. Homepage practice remains unsaved. Merge the draft create/update rules into the project's existing Firestore rules before using this feature.
+1. Sign in at `login.html`. Accounts and passwords are provisioned by the school; the student app has no registration or password-reset flow.
+2. Read `studentProfiles/{authUid}`. The login/dashboard require an active profile, matching Auth UID, section, admission number, and `studentKey = sectionId_admissionNo`.
+3. The dashboard queries sessions by section and submissions by student key. Pending sessions must be enabled, unarchived, not completed, and have a valid `dueAt` today or later in the browser's local timezone. They are sorted by due date ascending. `startAt` is displayed but does not gate access. Sessions without a valid due date are excluded.
+4. Opening a session rechecks its section and availability. A saved assigned practice attempt resumes; **Restart from Beginning** instead opens Step 2 to review settings. Saved progress is replaced only after **Restart Practice** starts the new attempt.
+5. A teacher-selected `questionBankListId`, or a complete saved class/subject/chapter scope, loads questions automatically. Other sessions show taxonomy and question filters. Completed sessions cannot be restarted through the student app.
+6. Assigned sessions write a completed submission when submitted. Incomplete practice drafts stay out of completed history, reports, duplicate-submission checks, and past-performance memory.
 
-## Firebase setup
+## Modes and question order
 
-Question feedback uses `qb_reactions_v1`: one Like/Dislike per authenticated user and question, with an optional editable comment prefilled from the user's answers. See `FIRESTORE_SCHEMA.md` for fields, deterministic IDs, and access rules. Reactions are saved separately from submissions, including in homepage practice.
+| Mode | Question order at Start | Learning support | Saved progress |
+| --- | --- | --- | --- |
+| `quiz`, `wpt`, `rpt` | Random | Audio, voice speed, listen/respond, available translations | Completed submission only |
+| `practice`, `reading_practice`, `writing_practice` | Loaded/list order by default; optional AI question selection memory | Instant feedback, audio, word banks, translated answer panel, explanation URL | Autosave and Pause/Resume for assigned sessions |
+| Homepage practice | Practice defaults; optional AI selection | Same practice helpers and filters | No progress or completed-submission writes |
 
-Enable Email/Password authentication and provision student accounts with UID-keyed profiles as described in the supplied admin schema. Deploy the student access rules by merging `firestore.rules` with the project's existing teacher/admin rules. These sample rules grant only student access and are not deployed by this change. The backend should keep profile `active` synchronized with account status.
+Practice instant feedback is enabled and locked on. AI selection is off by default; opting in ranks questions from prior completed answers and can reorder the remaining questions after feedback. Reading/writing practice includes ACTFL fields in this ranking. Quiz/test modes hide this option and shuffle questions by default.
 
-## Run Locally
+For teacher lists, questions are first loaded in `questionIds` order. Admission-number difficulty overrides and optional random per-type counts determine the eligible subset. Practice preserves the surviving list order unless AI selection is enabled; quiz/test modes shuffle that subset. Non-list filters include class, subject, chapter, difficulty, question type, explanations, translations, and staff verification. The verified filter is a client-side option, not an access rule.
 
-From the repository root:
+## Practice, explanations, and grading
+
+- Assigned practice autosaves answer edits and question transitions to the session's submission document. Pause saves before returning to the dashboard. Resume restores question order, position, answers, feedback, settings, AI memory, and elapsed time; paused time is excluded. A UID/session-scoped browser backup can recover edits immediately before refresh.
+- Homepage practice appears below Pending Quiz Sessions. It reads questions but does not save answers, progress, or results. Users can still explicitly save a question reaction.
+- Practice explanation URLs accept HTTP/HTTPS and appear in an expanded-by-default, collapsible panel with a desktop resize divider, plus a link in Instant Feedback. Quiz/test modes hide them. An external site may prevent iframe embedding; the Open link remains available.
+- “View translated answer” works with Original selected, showing available answers with language labels. With a translated question selected, it shows that answer, falling back to available translations if needed. It obeys the practice helper setting and is omitted when no translated answer exists.
+- Short-answer word banks always use original answer words. Viewing/changing translations preserves selected words. Word-bank answers are graded in the original language; typed answers use the selected language.
+- MCQ, True/False, and FIB are auto-graded. Short answers receive local assessment with an `aiReview`; cached AI models can improve semantic scoring. Short answers are correct at 90% of available marks, otherwise incorrect; `isCorrect` is null when no gradable expected answer exists. They are not universally stored as ungraded/manual-review responses.
+- Displayed point totals are rounded to one decimal place. Grading still retains its numeric values.
+
+## Practice Coach
+
+During an active practice attempt, a collapsible **Practice Coach** floats at the bottom right. Long-press/select text in the question, answer, or feedback area and choose **Open in Coach**, or open the launcher and type/paste text. It is unavailable in quiz/test modes. Text selected inside a cross-origin explanation iframe cannot be read by the parent page; paste that text into Coach instead.
+
+Four independent tools share the Coach text (up to 2,000 characters):
+
+- **Dictionary** looks up the chosen English word through [Free Dictionary API](https://dictionaryapi.dev/), including definitions, pronunciation text, and available examples.
+- **Spelling** checks up to 12 unique English words through [Datamuse](https://www.datamuse.com/api/) and shows possible alternatives without changing the text. Names and specialist vocabulary may be absent from its word list.
+- **Sentence Formation** uses the existing local `flan-t5-small` writing pipeline when ready. Otherwise it provides a clearly labeled local sentence starter/punctuation draft and sentence-structure guidance. Generated suggestions require the student's review.
+- **Speech-to-Text** explicitly starts the browser microphone, offers a speech-language choice and editable transcript, and copies the transcript into Coach only. Unsupported browsers retain the typed transcript workflow. Recognition needs a secure context (HTTPS/localhost), microphone permission, and browser support; it may use the browser vendor's online speech service.
+
+Run a text agent individually or use **Run all text agents**. Read aloud uses browser speech synthesis. Collapsing Coach stops microphone/read-aloud activity and cancels pending word lookups. Leaving practice clears Coach/transcript state; backgrounding the page stops the microphone. Coach output never changes quiz answers automatically and is not written to Firestore or persistent browser storage.
+
+Dictionary/spelling send only requested words to their services, without app credentials or Auth identifiers. No lookups occur merely by selecting text or opening Coach. Those tools require network access. Datamuse currently announces API-key requirements from February 1, 2027; review that dependency before rollout beyond that date and keep any future secret keys on a backend rather than in the browser.
+
+## Question reactions
+
+Like/Dislike opens an optional editable comment prefilled from the user's current answer(s). **Save Feedback** explicitly writes `qb_reactions_v1/{questionId}__{authUid}` with `questionId`, `userId`, `value`, `sourceType`, `sourceValue`, `updatedAt`, and optional `comment` (maximum 2,000 characters). A later save updates the same reaction across sessions.
+
+Assigned sessions use `sourceType: 'quiz-session'` and `sourceValue: classroomId`; homepage practice uses `'practice'` / `'homepage'`. Reactions are independent of scores and submissions.
+
+## Firebase configuration and authorization
+
+Enable Email/Password authentication and provision UID-keyed profiles through a trusted admin service. Keep profile `active` and Auth account status synchronized. The client uses the signed-in Auth UID/email for new submission identity.
+
+The repository rules now include teacher/admin access, not just starter student rules. Review them against the deployed project before publishing changes. Editing or pushing this repository does not establish which rules are live.
+
+Current rule details that affect deployment:
+
+- Published questions and taxonomy are publicly readable. Staff verification is not required by question-read rules.
+- Active students can read same-section sessions and their own submission history by student key. Classroom owners and section admins have additional review permissions, including restricted AI-review updates to completed submissions.
+- Three matching reaction blocks coexist. The legacy block grants public reads, signed-in owner writes to `questionId_uid` IDs, and owner deletes. The student block validates `questionId__uid` writes, source context, values, comments, and timestamps. Firestore combines these grants with OR: the stricter student block does not make reactions private, deny all deletes, or require its validation for legacy-ID writes.
+- Profile writes are denied by these client rules, including for signed-in admin clients; trusted profile provisioning must use a backend/Admin SDK or separately reviewed rules.
+
+See the authentication guide and schema for the full permission map and client-versus-rule distinctions.
+
+## Run and verify
 
 ```bash
 python3 -m http.server 8000
 ```
 
-Open:
+Open `http://localhost:8000/`. Firebase, KaTeX, Mermaid, and AI resources require network access initially; Firestore reads/writes require connectivity. Pause reports a save failure instead of leaving the attempt when cloud saving fails.
 
-```text
-http://localhost:8000/
+```bash
+node --test tests/*.test.cjs
+node --check app.js
+node --check submissions.js
+node --check login.js
 ```
 
-The app loads Firebase, KaTeX, and Mermaid from CDNs, so internet is required for first load and Firestore operations.
+The Node tests cover app behavior with mocked dependencies; they do not verify deployed Firestore permissions. Rule changes need separate emulator/integration checks against the complete combined rules.
 
-## Notes
+## Navigation and tours
 
-- Login always opens the section dashboard; quiz session codes are no longer required.
-- Links with `?show-recent=1` open the newest submission detail page after authentication.
-- MCQ, True/False, and FIB questions are auto-graded.
-- Short-answer responses are stored with `isCorrect: null` for teacher review.
-- Quiz sessions with `questionBankListId` use the teacher-selected list. If `studentDifficultyLevels` has an entry for the verified admission number, only that difficulty is used. If `randomQuestionTypeCounts` is set, selection is random within each requested type; otherwise every matching listed published question is used.
-- Published question reads use `qb_questions_v1 where status == "published"` when no quiz session list is selected.
-- Student submission history uses `studentKey = sectionId_admissionNo`.
-- A student can have only one submission per quiz session; duplicate attempts are blocked before write.
+Firebase restores the signed-in session across reloads. Dashboard returns to the section homepage; Sign Out ends the Auth session. Login redirects accept only the dashboard, submission list, or submission detail pages. `?show-recent=1` opens the newest completed submission after authentication.
 
-## Page tours
-
-Each page has its own Tour button walkthrough: sign-in, dashboard, submission history, and submission details. On the dashboard, the Tour button adapts to quiz setup, the quiz runner, or the result view. Automatic tour opt-out is saved separately for each page; the Tour button can always relaunch it. Steps targeting hidden or missing controls are skipped.
-
-Dashboard quiz session colors prioritize submitted attempts (green), then overdue
-(red), due today or within 3 calendar days (orange), and due in 4–6 calendar days
-(yellow). Calendar days use the student's local timezone. Sessions without a due
-date or due more than 6 days away retain the default card color. Status labels
-accompany colors.
+Tours are available for login, dashboard, setup, questions, results, submission history, and details. Opt-out is stored per tour. Pending-session colors highlight due today/within three calendar days and due in four–six days; submitted, overdue, and missing-due-date sessions are filtered out of this list even though styling/status helpers exist for them.

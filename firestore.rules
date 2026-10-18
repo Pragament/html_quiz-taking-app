@@ -234,6 +234,14 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Merge this read grant with existing student reaction write permissions.
+    match /qb_reactions_v1/{reactionId} {
+      allow read: if signedIn()
+        && resource.data.sourceType == 'quiz-session'
+        && (ownsClassroom(resource.data.sourceValue)
+          || canAdminClassroomSection(get(/databases/$(database)/documents/classrooms/$(resource.data.sourceValue)).data));
+    }
+
     match /qb_quiz_submissions_v1/{submissionId} {
       // Strongest option, if submissions include teacherUid:
       // allow read: if signedIn() && resource.data.teacherUid == request.auth.uid;

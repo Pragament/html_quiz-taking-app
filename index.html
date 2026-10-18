@@ -6,13 +6,13 @@
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
-    <link rel="stylesheet" href="styles.css?v=2026.10.16.1" />
+    <link rel="stylesheet" href="styles.css?v=2026.10.18.1" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
-    <div class="app-version-badge">v2026.10.16.1</div>
+    <div class="app-version-badge">v2026.10.18.1</div>
     <header class="topbar" id="appHeader"></header>
 
     <main class="app-shell">
@@ -214,7 +214,57 @@
         </section>
     </main>
 
+    <button id="coachSelectionAction" class="btn primary coach-selection-action" type="button" hidden>Open in Coach</button>
+    <aside id="practiceCoach" class="practice-coach" aria-label="Practice Coach" hidden>
+        <section id="coachPanel" class="coach-panel" aria-label="Coach tools" hidden>
+            <div class="coach-heading">
+                <div><h2>Practice Coach</h2><p>Four agents to help you learn.</p></div>
+                <button id="coachCollapse" class="btn small-btn" type="button" aria-label="Collapse Coach">Collapse</button>
+            </div>
+            <label class="field">
+                <span>Selected text or your own words</span>
+                <textarea id="coachText" rows="3" maxlength="2000" spellcheck="true" placeholder="Long press and select text on the question, or type here."></textarea>
+            </label>
+            <div class="coach-actions">
+                <button id="coachRunAll" class="btn primary" type="button">Run all text agents</button>
+                <button id="coachReadText" class="btn" type="button">Read aloud</button>
+            </div>
+            <div class="coach-agent-tools">
+                <label class="field"><span>Dictionary word (English)</span><select id="coachWord" disabled></select></label>
+                <div class="coach-actions">
+                    <button class="btn" type="button" data-coach-agent="dictionary">Dictionary</button>
+                    <button class="btn" type="button" data-coach-agent="spelling">Spelling</button>
+                    <button class="btn" type="button" data-coach-agent="sentence">Sentence Formation</button>
+                </div>
+                <p class="coach-note">Dictionary and Spelling send the chosen words to online word services. Sentence Formation runs on this device.</p>
+            </div>
+            <p id="coachStatus" class="coach-note" role="status"></p>
+            <div class="coach-results" aria-live="polite" aria-relevant="additions text">
+                <section class="coach-agent-card" data-coach-result="dictionary" hidden></section>
+                <section class="coach-agent-card" data-coach-result="spelling" hidden></section>
+                <section class="coach-agent-card" data-coach-result="sentence" hidden></section>
+            </div>
+            <details class="coach-speech" open>
+                <summary>Speech-to-Text agent</summary>
+                <label class="field"><span>Speech / read-aloud language</span>
+                    <select id="coachSpeechLanguage">
+                        <option value="en-IN">English (India)</option><option value="en-US">English (US)</option>
+                        <option value="hi-IN">Hindi</option><option value="te-IN">Telugu</option><option value="ta-IN">Tamil</option>
+                    </select>
+                </label>
+                <div class="coach-actions">
+                    <button id="coachStartSpeech" class="btn" type="button">Start microphone</button>
+                    <button id="coachStopSpeech" class="btn" type="button" disabled>Stop microphone</button>
+                </div>
+                <p id="coachSpeechStatus" class="coach-note" role="status"></p>
+                <label class="field"><span>Transcript (editable)</span><textarea id="coachTranscript" rows="3" maxlength="2000" placeholder="Your spoken words appear here."></textarea></label>
+                <button id="coachUseTranscript" class="btn" type="button">Use transcript in Coach</button>
+            </details>
+            <p class="coach-note">Coach text does not change your quiz answer and is not saved to Firestore.</p>
+        </section>
+        <button id="coachLauncher" class="btn primary coach-launcher" type="button" aria-expanded="false" aria-controls="coachPanel">Practice Coach</button>
+    </aside>
     <div id="toast" class="toast"></div>
-    <script type="module" src="app.js?v=2026.10.16.1"></script>
+    <script type="module" src="app.js?v=2026.10.18.1"></script>
 </body>
 </html>

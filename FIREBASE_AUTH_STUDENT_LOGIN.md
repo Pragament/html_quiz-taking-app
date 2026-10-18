@@ -1,37 +1,22 @@
-# Firebase Auth Student Login Plan
+# Firebase student authentication and authorization
 
-The student app now implements the Firebase email/password login and section dashboard. Enable Email/Password, provision student profiles, and merge/deploy the sample student rules before rollout.
+This describes the implemented login flow and the checked-in `firestore.rules`, not a future migration plan. The student app uses Firebase Email/Password, UID-keyed profiles, and a section dashboard. Quiz-code/admission/phone verification is no longer used.
 
-This document describes the production login model for the student quiz app.
+## Provisioning
 
-## Goal
-
-Use Firebase Authentication email/password accounts for students:
-
-- Username: student school email ID.
-- Password: set by an admin from a separate admin app.
-- Student app: login only.
-- Student app: no registration, no password creation, and no student self-service account creation.
-
-This replaces the current quiz-session code + admission number + phone-prefix verification flow when the app is migrated to authenticated access.
-
-## Recommended Data Model
-
-Create one profile document per Firebase Auth user:
+A trusted admin service must create Firebase Auth users, set/reset passwords, and provision:
 
 ```txt
 /studentProfiles/{authUid}
 ```
 
-Example:
-
 ```js
 {
   authUid: 'firebase-auth-uid',
   email: 'student@school.edu',
-  sectionId: 'QQAP9O4UyvlaYhqz7jdE',
-  admissionNo: '102',
-  studentKey: 'QQAP9O4UyvlaYhqz7jdE_102',
+  sectionId: 'section-document-id',
+  admissionNo: '001', // keep as a string, including leading zeroes
+  studentKey: 'section-document-id_001',
   studentName: 'Student Name',
   active: true,
   createdAt: Timestamp,
@@ -39,181 +24,88 @@ Example:
 }
 ```
 
-Optionally also keep the Auth UID on the existing student record:
+The student app does not create accounts, write profiles, reset passwords, or query roster/phone records. `createdAt` and `updatedAt` are admin-maintained metadata. Student name has a display fallback; profile email is useful metadata, but new submission identity uses the authenticated user's email.
 
-```txt
-/classSections/{sectionId}/students/{studentId}
-```
+An optional roster record under `classSections/{sectionId}/students/{studentId}` may contain `authUid`, `email`, `admissionNo`, `studentKey`, and `name` for admin workflows. It is not the student app's identity source.
 
-```js
-{
-  admissionNo: '102',
-  name: 'Student Name',
-  email: 'student@school.edu',
-  authUid: 'firebase-auth-uid',
-  studentKey: 'QQAP9O4UyvlaYhqz7jdE_102'
-}
-```
+The checked-in rules deny profile list/write operations to all client SDK users. Provision profiles through an Admin SDK/backend that bypasses client rules, or deliberately update and review the production provisioning rules. School-admin membership alone does not grant client profile-write access here.
 
-The top-level `studentProfiles/{authUid}` document is preferred for the student app because it lets the app read the signed-in student's profile directly without querying student PII collections.
+## Login and page access
 
-## Admin Responsibilities
+1. `login.js` trims/lowercases the entered email and calls `signInWithEmailAndPassword`; passwords are not stored in Firestore.
+2. `onAuthStateChanged` reads `studentProfiles/{user.uid}` directly. Login and dashboard require `active === true`, matching `authUid`, nonempty `sectionId`/`admissionNo`, and the exact derived student key.
+3. Invalid login profiles cause sign-out and keep the login form available. The dashboard redirects when the user/profile is unavailable. Submission pages require an active profile, matching UID, and a student key; they use that key for history/detail ownership checks.
+4. Firebase Auth restores the user across refreshes; the app re-reads the profile. Browser quiz state alone does not authorize access. The obsolete verified-session storage key is cleared on dashboard auth changes.
+5. `firebase.js` redirects to login with a next-page target. `login.js` accepts only `index.html`, `submissions.html`, or `submission.html`, optionally with a query string. Dashboard is the default.
+6. Header Sign Out calls Firebase `signOut`. Admins should synchronize profile `active` with disabled account status when revoking access.
 
-The admin app should:
+## Assigned sessions and submission identity
 
-1. Create Firebase Auth email/password users.
-2. Set or reset student passwords.
-3. Create or update `studentProfiles/{authUid}`.
-4. Optionally link `authUid` back to `classSections/{sectionId}/students/{studentId}`.
-5. Disable Auth users and/or set `active: false` when access should be revoked.
+The dashboard queries `classrooms` by the profile section, and submissions by the profile student key. Pending sessions must be enabled, unarchived, incomplete, and due today or later. Due dates are compared by local calendar day; future `startAt` does not delay access. Selecting or resuming a session repeats the client availability checks.
 
-The student app should not call Firebase Auth account creation APIs.
-
-## Student App Login Flow
-
-1. Student enters school email and password.
-2. App signs in with Firebase Auth email/password.
-3. App reads `/studentProfiles/{currentUser.uid}`.
-4. App uses profile fields for:
-   - `sectionId`
-   - `admissionNo`
-   - `studentKey`
-   - `studentName`
-5. Quiz sessions and submissions use the authenticated profile instead of trusting typed admission/phone values.
-
-Example client login:
-
-```js
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-
-const auth = getAuth();
-const credential = await signInWithEmailAndPassword(auth, email, password);
-
-const profileSnap = await getDoc(doc(db, 'studentProfiles', credential.user.uid));
-if (!profileSnap.exists() || profileSnap.data().active !== true) {
-  throw new Error('Student profile is not active.');
-}
-
-const profile = profileSnap.data();
-```
-
-## Submission Changes
-
-Add `authUid` and `email` to each submission:
-
-```js
-{
-  authUid: 'firebase-auth-uid',
-  email: 'student@school.edu',
-  sectionId: 'QQAP9O4UyvlaYhqz7jdE',
-  admissionNo: '102',
-  studentKey: 'QQAP9O4UyvlaYhqz7jdE_102',
-  studentName: 'Student Name'
-}
-```
-
-Use a deterministic submission ID that includes the quiz session and Auth UID, for example:
-
-```txt
-encodeURIComponent(classroomId)__encodeURIComponent(authUid)
-```
-
-or keep the existing shape if `studentKey` remains stable:
+New submission IDs are exactly:
 
 ```txt
 encodeURIComponent(classroomId)__encodeURIComponent(sectionId)__encodeURIComponent(admissionNo)
 ```
 
-## Firestore Rules Direction
+New documents include `authUid`, authenticated `email`, `classroomId`, `sectionId`, `admissionNo`, `studentKey`, and `studentName`, plus the attempt data. History uses `studentKey`, preserving access to older submissions that lack `authUid`.
 
-Production rules should rely on `request.auth`, not client-entered admission numbers.
+The app blocks duplicate completed submissions and uses deterministic IDs. The rules validate owner/profile identity and an active same-section classroom on create, but do not enforce that submission ID format or query for another document with the same session/student identity. They also do not enforce `dueAt`/`startAt`; those pending-session constraints are client behavior.
 
-Example:
+## Practice progress
 
-```js
-rules_version = '2';
+Assigned `practice`, `reading_practice`, and `writing_practice` sessions save unfinished progress into the same submission document, marked `practiceProgress: true` and `status: 'in_progress' | 'paused'`. The rules require the practice mode, schema version, answer count, current index, numeric update time, and a string snapshot below 900,000 characters.
 
-service cloud.firestore {
-  match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
+Students may update their own unfinished practice document while keeping UID, student key, and classroom fixed, or replace it with a completed submission containing submission timestamps. Completed/historical submissions cannot be updated through the student-progress grant. Separate teacher/admin AI-review updates remain allowed.
 
-    function isSelf(uid) {
-      return signedIn() && request.auth.uid == uid;
-    }
+Resume restores state after refresh. Restart opens Step 2 before replacing progress at Start. Homepage practice writes neither progress nor completed submissions; explicitly saved reactions are still supported. See [the schema](FIRESTORE_SCHEMA.md) for the snapshot fields and browser backup.
 
-    function isTeacher() {
-      return signedIn() && request.auth.token.role in ['teacher', 'admin'];
-    }
+## Effective checked-in permissions
 
-    match /studentProfiles/{uid} {
-      allow read: if isSelf(uid);
-      allow write: if isTeacher();
-    }
+[firestore.rules](firestore.rules) is the authority for the current repository. It combines student and teacher/admin grants; it is not the older minimal student-only example.
 
-    match /qb_taxonomy_v1/{docId} {
-      allow read: if signedIn();
-      allow write: if isTeacher();
-    }
+| Collection | Effective access relevant to this app |
+| --- | --- |
+| `studentProfiles` | Signed-in user can get their UID document, including an inactive profile so login can reject it; no client list/write |
+| `qb_taxonomy_v1` | Public read; signed-in create/update with allowed type and string label; no delete |
+| `qb_questions_v1` | Public read of published questions; signed-in author can read their unpublished questions, create their own, and update while retaining authorship; no delete |
+| `classrooms` | Active student reads same-section sessions; creator or section admin also reads; creator creates/updates with valid list/section references; no delete |
+| `qb_lists_v1` | Active students read lists; signed-in list owner also reads and can create/update/delete their own lists |
+| `classSections` and nested `students` | Section-member/admin permissions; school-admin create/manage permissions as defined in the rules; ordinary student profile membership does not grant roster reads |
+| `qb_quiz_submissions_v1` | Active student reads own student-key history and creates own attempts; constrained unfinished-practice updates; classroom owners/section admins review and make restricted AI-review updates; no delete |
+| `qb_reactions_v1` | Public read through a legacy grant, plus the reaction write/delete paths described below |
 
-    match /classrooms/{classroomId} {
-      allow read: if signedIn() && resource.data.classEnabled == true;
-      allow write: if isTeacher();
-    }
+Teacher/admin identity is determined by `schoolAdmins/{uid}` existence, section `members` entries containing lowercased email and `admin`/`viewer` role, classroom `creatorId`, and list `ownerUid`, according to the operation. The rules do not use the old proposed `request.auth.token.role` teacher/admin model. Public taxonomy/question reads mean the student login screen is not a security boundary for those published resources. The staff-verified filter is optional client filtering.
 
-    match /classSections/{sectionId}/students/{studentId} {
-      // Student app should not need this after studentProfiles is available.
-      allow read, write: if isTeacher();
-    }
+## Practice Coach scope
 
-    match /qb_questions_v1/{questionId} {
-      allow read: if signedIn()
-        && resource.data.status == 'published'
-        && resource.data.verified == true;
-      allow write: if isTeacher();
-    }
+The floating Coach is enabled only while a practice quiz view is active, including homepage practice and assigned practice modes. It is hidden for quiz/test modes and cleared when the practice view is left. This is a client learning-tool mode check, not an extra Firestore permission. Coach text/transcripts are not persisted or automatically inserted into answers. Dictionary/spelling queries omit Firebase credentials and identity; speech recognition uses explicit browser microphone permission and may be processed by the browser's speech provider. No Auth or Firestore rules changes are needed for the Coach.
 
-    match /qb_lists_v1/{listId} {
-      allow read: if signedIn();
-      allow write: if isTeacher();
-    }
+## Reaction authorization and overlapping grants
 
-    match /qb_quiz_submissions_v1/{submissionId} {
-      allow create: if signedIn()
-        && request.resource.data.authUid == request.auth.uid;
+The student app writes `qb_reactions_v1/{questionId}__{authUid}` with:
 
-      allow read: if signedIn()
-        && resource.data.authUid == request.auth.uid;
+- `userId` matching Firebase Auth UID, `questionId`, and `value: 'like' | 'dislike'`.
+- Required `sourceType`/`sourceValue`: `'quiz-session'` / classroom ID for assigned sessions, or `'practice'` / `'homepage'`.
+- `updatedAt: serverTimestamp()` and optional string `comment` up to 2,000 characters.
 
-      allow update, delete: if false;
-    }
+The student write block validates those fields, the deterministic double-underscore ID, a published question, and active same-section source sessions. Existing reactions without source fields remain readable; current app saves add them.
 
-    match /{document=**} {
-      allow read, write: if false;
-    }
-  }
-}
-```
+There are also two other matching blocks. The legacy block allows **public reaction reads**, signed-in owner writes using the **single-underscore** `questionId_uid` ID without the student block's value/comment/source/timestamp validation, and deletes by the stored owner. A further block grants source-session reads to classroom owners/section admins.
 
-## Migration Checklist
+Firestore ORs matching allow expressions. Therefore the combined file does **not** enforce reaction privacy, universally deny reaction deletion, or apply the strict student validation to every possible reaction write. The app itself uses the stricter double-underscore schema and has no delete UI. Single-underscore reactions from another app are separate records; this app does not migrate/read them as its double-underscore reaction.
 
-1. Enable Email/Password sign-in in Firebase Authentication.
-2. Build or update the admin app to create Auth users.
-3. Backfill `studentProfiles/{authUid}` for existing students.
-4. Change student app login UI to email/password only.
-5. Replace local verified-session storage with Firebase Auth session state.
-6. Load profile from `studentProfiles/{authUid}` after login.
-7. Include `authUid` in submissions.
-8. Update submission history queries to use `authUid` or authenticated `studentKey`.
-9. Deploy stricter Firestore rules.
-10. Remove direct student PII reads from the student app.
+## Teacher AI review
 
-## Notes
+Classroom owners or section admins permitted by `canReviewSubmission` can update only `answers`, `aiReviewUpdatedAt`, `aiReviewUpdatedBy`, and `aiReviewUpdatedByEmail`. The answer-list length must stay unchanged, update time is numeric, and reviewer UID/email must match Auth. This is why completed submissions are described as immutable **to students**, rather than immutable to every actor.
 
-- Do not use phone number as a password.
-- Do not store plain-text passwords in Firestore.
-- Admin password reset should happen through Firebase Auth or the Firebase Admin SDK.
-- Consider requiring school-managed email domains if all student emails share a domain.
-- Consider adding App Check after Auth migration to reduce abuse from non-app clients.
+## Deployment and verification
+
+1. Enable Email/Password for the project configured in `firebase.js` and provision Auth users/profiles through the trusted admin service.
+2. Review the complete combined rules, including legacy/public reaction permissions, against the desired production policy. Preserve required teacher/admin workflows when changing rules.
+3. Test the exact combined rules with the Firestore emulator: profile access, section isolation, published reads, practice create/update/complete, completed-submission restrictions, teacher review, both reaction ID formats, public reads, and owner deletes.
+4. Deploy the reviewed rules through the project's established Firebase deployment process. Documentation edits, a Git push, and local tests do not verify or deploy the live rules.
+5. Smoke-test sign-in, pending sessions, practice refresh/resume/restart, final submission, reaction edits/comments/source metadata, and submission history using real student and reviewer accounts.
+
+Run `node --test tests/*.test.cjs` for app regression tests. Those tests mock Firestore and do not establish live authorization. No password or service-account secrets belong in these documents or browser storage.

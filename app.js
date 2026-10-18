@@ -1,5 +1,6 @@
 import { maybePromptGuidedTour } from './tours.js';
 import { initializeHeader, setHeaderStudent } from './header.js';
+import { initializePracticeCoach } from './coach.js?v=2026.10.18.1';
 import { auth, db, loginUrl } from './firebase.js';
 import {
     collection,
@@ -65,7 +66,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.16.1';
+const APP_VERSION = '2026.10.18.1';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -129,6 +130,14 @@ if (window.mermaid) {
 }
 
 bindEvents();
+initializePracticeCoach({
+    isPracticeMode: () => !!quiz && shouldShowPracticeQuizSettings() && !els.quizView.hidden,
+    generateSentence: async text => {
+        if (!offlineAi.grammarPipe) return null;
+        const result = await offlineAi.grammarPipe(`Rewrite as one clear, grammatical sentence while keeping the meaning: ${text}`, { max_new_tokens: 128, do_sample: false });
+        return result?.[0]?.generated_text?.trim() || null;
+    }
+});
 initializeSpeechControls();
 preloadOfflineAiModels();
 onAuthStateChanged(auth, handleStudentAuth);
@@ -1641,7 +1650,7 @@ function renderQuiz() {
     ensureQuestionTranslationSelection(question);
     renderExplanationFrame(question.explanationUrl);
     const score = instantFeedbackScore();
-    const scoreSummary = quiz.instantFeedback && score.max ? ` · Score ${score.scored}/${score.max}` : '';
+    const scoreSummary = quiz.instantFeedback && score.max ? ` · Score ${formatPoints(score.scored)}/${formatPoints(score.max)}` : '';
     els.progressSummary.textContent = `Question ${currentIndex + 1} of ${quiz.questions.length} · ${quiz.answers.filter((a, i) => isAnswered(quiz.questions[i], a)).length} answered${scoreSummary}`;
     els.timerLabel.textContent = elapsedLabel(Date.now() - quiz.startedAt);
     els.questionMeta.textContent = `${question.className || 'Class'} · ${question.subject || 'Subject'} · ${question.chapter || 'Chapter'} · ${question.difficulty || 'Difficulty'}`;
@@ -1970,6 +1979,7 @@ function renderInstantFeedbackPanel() {
         return;
     }
     const feedback = quiz.feedback[currentIndex] || gradeAnswer(quiz.questions[currentIndex], quiz.answers[currentIndex]);
+    const explanationUrl = shouldShowPracticeQuizSettings() ? validExplanationUrl(quiz.questions[currentIndex].explanationUrl) : '';
     const points = feedbackPoints(feedback);
     const total = instantFeedbackScore();
     const status = feedbackStatus(feedback);
@@ -1987,6 +1997,7 @@ function renderInstantFeedbackPanel() {
         ${feedback.aiReview?.reason ? `<div class="feedback-reasons"><strong>Reason for points:</strong> ${esc(feedback.aiReview.reason)}</div>` : ''}
         ${feedback.aiReview ? renderDetailedAiReview(feedback.aiReview, feedback.shortAnswer || '') : ''}
         ${feedback.explanation ? `<div class="feedback-explanation"><strong>Explanation:</strong> ${esc(feedback.explanation)}</div>` : ''}
+        ${explanationUrl ? `<div class="feedback-explanation feedback-explanation-url"><strong>Topic explanation:</strong> <a href="${esc(explanationUrl)}" target="_blank" rel="noopener noreferrer">${esc(explanationUrl)}</a></div>` : ''}
     `;
 }
 
