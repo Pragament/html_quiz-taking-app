@@ -90,3 +90,19 @@ test('awards persist within an attempt and after restore, but a restarted attemp
     const restarted = { questions: quiz.questions, feedback: [], feedbackShown: [] };
     assert.equal(updatePracticeBadgeAwards(restarted).earned.size, 0);
 });
+
+test('badge storage fields are versioned and final grades are evaluated even before their feedback is shown', async () => {
+    const { snapshotPracticeBadges } = await badgeModule;
+    const quiz = {
+        questions: Array.from({ length: 10 }, (_, index) => ({ id: `q${index}`, topic: 'Fractions' })),
+        feedback: Array.from({ length: 10 }, () => ({ isCorrect: true })), feedbackShown: [...Array(9).fill(true), false]
+    };
+    assert.deepEqual(snapshotPracticeBadges(quiz), { practiceBadgeVersion: 1, practiceBadges: [] });
+    const stored = snapshotPracticeBadges(quiz, quiz.feedback);
+    assert.equal(stored.practiceBadgeVersion, 1);
+    assert.equal(stored.practiceBadges.length, 1);
+    assert.equal(stored.practiceBadges[0].name, 'Topic Master');
+    assert.equal(stored.practiceBadges[0].correct, 10);
+    assert.equal(stored.practiceBadges[0].checked, 10);
+    assert.notEqual(stored.practiceBadges[0], quiz.earnedPracticeBadges[0]);
+});

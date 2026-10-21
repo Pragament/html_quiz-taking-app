@@ -50,6 +50,8 @@ For teacher lists, questions are first loaded in `questionIds` order. Admission-
 
 The Questions header includes a single-line, horizontally scrollable numbered selector in practice modes. Tap a number to revisit a question or move ahead. Touch scrolling and left/right scroll buttons browse long attempts; arrow keys, Home/End, then Enter/Space support keyboard navigation. The active number stays visible when changing questions.
 
+Difficulty, skill, ACTFL level, sublevel, and mode dropdowns filter the question numbers shown. Options come from the current attempt's metadata; selections combine with AND. Matching questions retain their original attempt numbers and jump destinations. Filtering does not change the active question, attempt order, answers, score, statistics, or badges. A count shows how many numbers match and notes when the active question is outside the filters. Clear filters restores all numbers; a new/resumed attempt starts with All selected. Filter choices are temporary UI state and are not saved to Firestore.
+
 The legend identifies gray unanswered questions, amber answered-but-unchecked drafts, green correct answers, red incorrect answers, purple checked/ungraded answers, and a blue outline around the current question. Status labels are also available to screen readers.
 
 Jumping saves the outgoing answer and restores the destination's answer and feedback without checking or grading it automatically. Already checked answers remain locked. Assigned practice also saves the selected position for resume; homepage practice keeps it only in memory. Navigation is blocked during checking, pausing, and submission. With optional AI selection, later checked questions and answer drafts retain their numbered slots while remaining unanswered slots can be reordered. Quiz/test modes do not show this selector.
@@ -67,6 +69,8 @@ Earned badges appear in the **Questions header**, beside the timer, score, and P
 | Interpretive / Interpersonal / Presentational Explorer | At least 10 distinct questions in the communication mode and 80% correct |
 
 Unchecked, ungraded, and missing-ID questions do not qualify. Repeated question IDs count once; eligibility uses exact ratios rather than rounded display percentages. Earned badges remain earned within the attempt even if later accuracy drops. Assigned practice snapshots restore them after refresh, and completed practice submissions retain award metadata. Restart begins a fresh attempt and fresh badges. Homepage practice badges remain in memory only. Missing metadata does not earn a badge for an unspecified category. Improvement/consistency badges and lifetime achievements are not implemented.
+
+Assigned practice stores badge information directly in `qb_quiz_submissions_v1` on every autosave/pause and final submission: `practiceBadgeVersion: 1` plus `practiceBadges` (an array, empty when none are earned). Each badge records its identifier, name/category label, icon, threshold/minimum, and counts/accuracy when earned. The embedded practice snapshot retains the same awards for resume; final submission also evaluates final graded answers. Existing completed records are not backfilled automatically, and homepage practice remains unsaved. See [the badge schema](FIRESTORE_SCHEMA.md#badge-fields-on-practice-progress-and-submissions).
 
 ## Practice Coach
 

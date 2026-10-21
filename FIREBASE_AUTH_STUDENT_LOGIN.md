@@ -61,6 +61,8 @@ Students may update their own unfinished practice document while keeping UID, st
 
 Resume restores state after refresh. Restart opens Step 2 before replacing progress at Start. Homepage practice writes neither progress nor completed submissions; explicitly saved reactions are still supported. See [the schema](FIRESTORE_SCHEMA.md) for the snapshot fields and browser backup.
 
+Assigned-practice documents additionally store `practiceBadgeVersion: 1` and top-level `practiceBadges` on autosave/pause and completion. Embedded `quiz.earnedPracticeBadges` supports resume, with the top-level array as a fallback. These optional learning-feedback fields use the existing owner-controlled submission/draft write paths, require no new collection or rule grant, and are not server-attested awards. Completed records retain their existing student update restrictions; historical documents are not backfilled by the client. Homepage practice does not persist badges.
+
 ## Effective checked-in permissions
 
 [firestore.rules](firestore.rules) is the authority for the current repository. It combines student and teacher/admin grants; it is not the older minimal student-only example.

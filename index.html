@@ -6,13 +6,13 @@
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
-    <link rel="stylesheet" href="styles.css?v=2026.10.21.3" />
+    <link rel="stylesheet" href="styles.css?v=2026.10.21.5" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
-    <div class="app-version-badge">v2026.10.21.3</div>
+    <div class="app-version-badge">v2026.10.21.5</div>
     <header class="topbar" id="appHeader"></header>
 
     <main class="app-shell">
@@ -172,6 +172,11 @@
                     <div id="selectionMemoryDetails"></div>
                 </details>
                 <nav id="practiceQuestionNavigation" class="practice-question-navigation" aria-label="Practice question selector" hidden>
+                    <div id="practiceQuestionFilters" class="practice-question-filters" role="group" aria-label="Filter question numbers"></div>
+                    <div class="practice-question-filter-status">
+                        <span id="practiceQuestionFilterSummary" role="status" aria-live="polite"></span>
+                        <button id="practiceQuestionClearFilters" class="btn small-btn" type="button" disabled>Clear filters</button>
+                    </div>
                     <div class="practice-question-carousel">
                         <button id="practiceQuestionScrollBack" class="btn" type="button" aria-label="Scroll question numbers left">‹</button>
                         <div id="practiceQuestionTrack" class="practice-question-track" role="group" aria-label="Question numbers. Use arrow keys, Home and End to move focus; Enter to open a question."></div>
@@ -289,6 +294,6 @@
         <button id="coachLauncher" class="btn primary coach-launcher" type="button" aria-expanded="false" aria-controls="coachPanel">Practice Coach</button>
     </aside>
     <div id="toast" class="toast"></div>
-    <script type="module" src="app.js?v=2026.10.21.3"></script>
+    <script type="module" src="app.js?v=2026.10.21.5"></script>
 </body>
 </html>

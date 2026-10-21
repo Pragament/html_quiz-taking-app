@@ -13,6 +13,30 @@ test('question colors distinguish unchecked drafts, checked results and ungraded
     assert.deepEqual(quiz.questions.map((q, index) => practiceQuestionState(quiz, index, (question, answer) => !!answer.text)), ['unanswered', 'answered', 'correct', 'wrong', 'ungraded']);
 });
 
+test('selector filters combine metadata criteria and retain original question indices', async () => {
+    const { filteredPracticeQuestionIndices } = await navigation;
+    const questions = [
+        { difficulty: 'Hard', skill: 'Listening', actfl_level: 'Novice Low', actfl_sublevel: 'Low', actfl_mode: 'Interpretive' },
+        { difficulty: 'Easy', skill: 'Reading', actfl_level: 'Novice Low', actfl_sublevel: 'Low', actfl_mode: 'Interpretive' },
+        { difficulty: 'Easy', skill: 'Listening', actfl_level: 'Novice Low', actfl_sublevel: 'Low', actfl_mode: 'Interpretive' },
+        { difficulty: 'Easy', skill: 'Listening', actfl_level: 'Intermediate Low', actfl_sublevel: 'Low', actfl_mode: 'Presentational' }
+    ];
+    assert.deepEqual(filteredPracticeQuestionIndices(questions, { difficulty: 'Easy' }), [1, 2, 3]);
+    assert.deepEqual(filteredPracticeQuestionIndices(questions, { difficulty: 'Easy', skill: 'Listening', actfl_level: 'Novice Low', actfl_sublevel: 'Low', actfl_mode: 'Interpretive' }), [2]);
+    assert.deepEqual(filteredPracticeQuestionIndices(questions, { difficulty: 'Medium' }), []);
+    assert.deepEqual(filteredPracticeQuestionIndices(questions, {}), [0, 1, 2, 3]);
+    assert.equal(questions.length, 4);
+});
+
+test('filter options come from available metadata, deduplicate values and omit missing entries', async () => {
+    const { practiceQuestionFilterOptions, filteredPracticeQuestionIndices } = await navigation;
+    const questions = [{ skill: 'Listening' }, { skill: ' Listening ' }, { skill: 'Writing' }, {}];
+    assert.deepEqual(practiceQuestionFilterOptions(questions, 'skill'), ['Listening', 'Writing']);
+    assert.deepEqual(practiceQuestionFilterOptions(questions, 'actfl_level'), []);
+    assert.deepEqual(filteredPracticeQuestionIndices(questions, { skill: 'Listening' }), [0, 1]);
+    assert.deepEqual(filteredPracticeQuestionIndices(questions), [0, 1, 2, 3]);
+});
+
 function setup() {
     const next = { disabled: false };
     const ctx = vm.createContext({

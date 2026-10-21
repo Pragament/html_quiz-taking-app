@@ -42,6 +42,18 @@ export function updatePracticeBadgeAwards(quiz) {
     return { progress, earned };
 }
 
+export function snapshotPracticeBadges(quiz, completedFeedback = null) {
+    const source = completedFeedback ? {
+        ...quiz, feedback: completedFeedback, feedbackShown: completedFeedback.map(() => true)
+    } : quiz;
+    const { earned } = updatePracticeBadgeAwards(source);
+    quiz.earnedPracticeBadges = [...earned.values()];
+    return {
+        practiceBadgeVersion: 1,
+        practiceBadges: quiz.earnedPracticeBadges.map(badge => ({ ...badge }))
+    };
+}
+
 export function initializePracticeBadgeHeader({ isVisible, getAttempt }) {
     const header = document.querySelector('#quizView > .nav-panel');
     const section = document.createElement('section');

@@ -118,6 +118,8 @@ The practice statistics sidebar adds no stored fields or collection. It derives 
 
 The practice question-number selector also requires no new field. It reads `answers`, `feedback`, and `feedbackShown` for status colors. Jumping saves the current answer and changes the existing `currentIndex` in assigned-practice progress; resume restores that position. Selecting a question does not itself grade it. Homepage navigation remains in memory, and quiz/test modes do not expose this selector.
 
+The selector's difficulty/skill/ACTFL filters read the existing question snapshot fields and narrow only the displayed numbers. They do not mutate the question list or progress snapshot. Filter selections are not persisted; reopening a saved attempt defaults to All.
+
 The practice-only floating Coach does not add a Firestore collection or document field. Selected text, dictionary/spelling results, sentence suggestions, and speech transcripts remain temporary UI state and are cleared when leaving practice. They are not included in `practiceState`, completed answers, or reactions unless the user separately enters text into those forms. Dictionary/spelling make explicit online word lookups without Firebase identity; browser speech recognition may use its provider's speech service. See the README for service dependencies and browser limitations.
 
 ### Completed `qb_quiz_submissions_v1` documents
@@ -150,7 +152,8 @@ submissionId = encodeURIComponent(classroomId)__encodeURIComponent(sectionId)__e
   answeredCount: 8,
   gradableCount: 10,
   correctCount: 5,
-  practiceBadges: [/* optional: earned current-attempt awards for practice submissions */],
+  practiceBadgeVersion: 1, // practice submissions only
+  practiceBadges: [/* earned current-attempt awards; empty array if none */],
   answers: [
     {
       questionId: 'question-id',
@@ -197,6 +200,8 @@ Uses the same session/section/admission document ID as the eventual submission:
   quizSessionLabel: 'Reading Practice · Grade 8',
   practiceProgress: true,
   progressVersion: 1,
+  practiceBadgeVersion: 1,
+  practiceBadges: [/* earned current-attempt awards; see badge shape below */],
   status: 'in_progress', // 'in_progress' | 'paused'
   questionCount: 10,
   currentIndex: 2, // zero-based
@@ -212,11 +217,34 @@ Only assigned `practice`, `reading_practice`, and `writing_practice` sessions wr
 
 “Restart from Beginning” opens Step 2 and reloads the appropriate list or filters. Saved progress remains until Start/Restart Practice creates fresh answers using the selected settings. Other sessions' progress is unaffected.
 
-The optional `quiz.earnedPracticeBadges` array inside `practiceState` preserves awards already earned in the current attempt. Each award includes `id`, `name`, `label`, `icon`, `threshold`, `minimum`, `correct`, `checked`, `accuracy`, and `earned: true` at the time it qualified. Completed practice submissions copy this array to the optional top-level `practiceBadges` field. Older snapshots without it derive any currently qualifying awards on resume. No separate badge collection, lifetime counter, or rules change is required. The current-attempt awards are client-computed learning feedback, not server-certified proficiency. Restart clears them; repeated question IDs cannot increase the distinct-question count. See the README for thresholds and badge types.
-
 Drafts are excluded from completed-history/report queries after loading, pending-session completion checks, duplicate checks, and historical AI memory. Final submission replaces the draft with the completed shape; there is no required `status: 'submitted'` field on completed records. Older completed records lacking `authUid` remain readable by the matching active profile's student key. Homepage practice writes neither shape.
 
 The owner can update an unfinished draft while retaining UID, student key, and classroom, or transition it to a completed submission with timestamps. The student draft grant cannot reopen a completed record. Teacher/admin review grants are separate.
+
+### Badge fields on practice progress and submissions
+
+Every new assigned-practice autosave, pause, and completed submission includes top-level `practiceBadgeVersion: 1` and `practiceBadges: []` (or the earned badge objects). Consumers can read badges directly from `qb_quiz_submissions_v1/{submissionId}` without parsing `practiceState`. Example array entry:
+
+```js
+{
+  id: 'topic:fractions-topic-id',
+  name: 'Topic Master',
+  label: 'Fractions',
+  icon: '🎯',
+  threshold: 90, // required accuracy percentage
+  minimum: 10,   // minimum distinct checked, gradable questions
+  correct: 9,    // qualifying counts when the badge was first earned
+  checked: 10,
+  accuracy: 90,  // rounded display percentage; eligibility uses the exact ratio
+  earned: true
+}
+```
+
+Badge IDs identify the topic, pooled Hard/Very Hard difficulty, skill, ACTFL level, or communication mode. They are unique within the attempt's array. Draft autosaves update the top-level list and keep `quiz.earnedPracticeBadges` inside `practiceState` synchronized. Once earned, awards remain in that attempt even when later accuracy falls. Final submission evaluates all final graded answers as checked, preserves earlier awards, and saves the resulting top-level array. Badge persistence does not depend on the header being expanded or rendered.
+
+On resume the embedded array is used when available; a top-level `practiceBadges` array is the fallback when the embedded field is missing. Older snapshots lacking both derive any currently qualifying awards from their stored feedback. No bulk backfill of historical completed submissions is performed. Restart clears awards when the new attempt starts. Duplicate question IDs count only once, and no lifetime counter is incremented. Homepage practice still writes neither a progress document nor a completed submission; its badges stay in memory.
+
+These are client-computed practice achievements, not server-certified proficiency. The current submission/draft rules allow the additional badge fields; no separate collection or rule change is required for this extension. Existing identity, classroom, draft-update and completed-submission restrictions still apply. See the README for badge criteria.
 
 ### `qb_reactions_v1`
 

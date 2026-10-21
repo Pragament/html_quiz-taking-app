@@ -37,6 +37,8 @@ function setup() {
         loadStudentSessions: async () => { ctx.dashboardLoaded = true; },
         setExplanationCollapsed() {}, showOnly: view => { ctx.view = view; }, renderSelectionMemory() {}, renderQuiz() {}
     });
+    const badgeSource = fs.readFileSync('practice-badges.js', 'utf8');
+    vm.runInContext(badgeSource.slice(0, badgeSource.indexOf('export function initializePracticeBadgeHeader(')).replace(/^export /gm, ''), ctx);
     vm.runInContext(source.slice(source.indexOf('function isPracticeDraft('), source.indexOf('function showOnly(')), ctx);
     vm.runInContext(source.slice(source.indexOf('function emptyAnswer('), source.indexOf('function renderQuiz(')), ctx);
     vm.runInContext(source.slice(source.indexOf('function emptyStudentPerformanceMemory('), source.indexOf('function applyAnswerToPerformanceMemory(')), ctx);
@@ -78,6 +80,33 @@ test('different practice sessions save into separate submission documents', asyn
     assert.deepEqual([...h.records.values()].map(item => item.classroomId), ['practice1', 'practice2']);
 });
 
+test('paused documents expose versioned badges directly and resume restores top-level awards', async () => {
+    const h = setup();
+    const count = 10;
+    h.ctx.quiz.questions = Array.from({ length: count }, (_, index) => ({ id: `q${index}`, topic: 'Fractions' }));
+    h.ctx.quiz.answers = Array.from({ length: count }, (_, index) => ({ questionId: `q${index}`, selectedOptions: [0] }));
+    h.ctx.quiz.feedback = Array.from({ length: count }, () => ({ isCorrect: true }));
+    h.ctx.quiz.feedbackShown = Array(count).fill(true);
+    h.ctx.quiz.promptRevealed = Array(count).fill(true);
+    h.ctx.quiz.translationChoices = Array(count).fill('');
+    await h.ctx.pausePractice();
+    const [id, draft] = [...h.records][0];
+    assert.equal(draft.practiceBadgeVersion, 1);
+    assert.equal(draft.practiceBadges.length, 1);
+    assert.equal(draft.practiceBadges[0].name, 'Topic Master');
+    const state = JSON.parse(draft.practiceState);
+    assert.deepEqual(state.quiz.earnedPracticeBadges, draft.practiceBadges);
+    delete state.quiz.earnedPracticeBadges;
+    state.quiz.feedback[0].isCorrect = false;
+    state.quiz.feedback[1].isCorrect = false;
+    draft.practiceState = JSON.stringify(state);
+    const fresh = setup();
+    fresh.records.set(id, draft);
+    await fresh.ctx.resumePractice(id);
+    assert.equal(fresh.ctx.quiz.earnedPracticeBadges.length, 1);
+    assert.equal(fresh.records.get(id).practiceBadges[0].name, 'Topic Master');
+});
+
 test('starting again from Step 2 replaces saved progress with fresh answers and selected settings', async () => {
     const h = setup();
     await h.ctx.savePracticeProgress();
@@ -108,6 +137,8 @@ test('starting again from Step 2 replaces saved progress with fresh answers and 
     assert.equal(h.ctx.quiz.listenRespond, true);
     assert.ok(Date.now() - h.ctx.quiz.startedAt < 1000);
     assert.equal(h.records.get(id).currentIndex, 0);
+    assert.equal(h.records.get(id).practiceBadgeVersion, 1);
+    assert.equal(h.records.get(id).practiceBadges.length, 0);
     assert.equal(h.records.get('another-session'), other);
     h.ctx.quiz = null;
     await h.ctx.resumePractice(id);
@@ -183,6 +214,8 @@ test('finishing assigned practice replaces its draft with a completed submission
     assert.equal(h.records.get(id).practiceProgress, undefined);
     assert.equal(h.records.get(id).submittedAt, 'server-time');
     assert.equal(h.records.get(id).correctCount, 2);
+    assert.equal(h.records.get(id).practiceBadgeVersion, 1);
+    assert.equal(h.records.get(id).practiceBadges.length, 0);
     assert.equal(h.cache.size, 0);
     await h.ctx.savePracticeProgress();
     assert.equal(h.records.get(id).submittedAt, 'server-time');

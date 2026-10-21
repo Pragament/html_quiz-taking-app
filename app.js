@@ -1,9 +1,9 @@
 import { maybePromptGuidedTour } from './tours.js';
 import { initializeHeader, setHeaderStudent } from './header.js';
-import { initializePracticeCoach } from './coach.js?v=2026.10.21.3';
-import { summarizePracticeStats } from './practice-stats.js?v=2026.10.21.3';
-import { initializePracticeBadgeHeader } from './practice-badges.js?v=2026.10.21.3';
-import { initializePracticeQuestionNavigation } from './question-navigation.js?v=2026.10.21.3';
+import { initializePracticeCoach } from './coach.js?v=2026.10.21.5';
+import { summarizePracticeStats } from './practice-stats.js?v=2026.10.21.5';
+import { initializePracticeBadgeHeader, snapshotPracticeBadges } from './practice-badges.js?v=2026.10.21.5';
+import { initializePracticeQuestionNavigation } from './question-navigation.js?v=2026.10.21.5';
 import { auth, db, loginUrl } from './firebase.js';
 import {
     collection,
@@ -69,7 +69,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.21.3';
+const APP_VERSION = '2026.10.21.5';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -2434,7 +2434,7 @@ async function performQuizSubmission() {
         gradableCount: gradable.length,
         correctCount: correct,
         answers: gradedAnswers,
-        ...(shouldShowPracticeQuizSettings() ? { practiceBadges: quiz.earnedPracticeBadges || [] } : {}),
+        ...(shouldShowPracticeQuizSettings() ? snapshotPracticeBadges(quiz, gradedAnswers) : {}),
         submittedAt: serverTimestamp(),
         submittedAtMillis: Date.now()
     };
@@ -3072,6 +3072,7 @@ function clearPracticeCache(owner) {
 }
 
 function practiceDraftData(status = 'in_progress') {
+    const badges = snapshotPracticeBadges(quiz);
     const elapsedMs = Math.max(0, (quiz.pausedAt || Date.now()) - quiz.startedAt);
     const practiceState = JSON.stringify({ quiz, currentIndex, elapsedMs }, (key, value) => {
         if (value instanceof Set) return { practiceType: 'Set', entries: [...value] };
@@ -3089,6 +3090,7 @@ function practiceDraftData(status = 'in_progress') {
         quizSessionLabel: els.classroomLabel.textContent,
         practiceProgress: true,
         progressVersion: 1,
+        ...badges,
         status,
         questionCount: quiz.questions.length,
         currentIndex,
@@ -3183,6 +3185,9 @@ async function resumePractice(id) {
         throw new Error('The saved practice progress is incomplete.');
     }
     quiz = state.quiz;
+    if (!Array.isArray(quiz.earnedPracticeBadges) && Array.isArray(draft.practiceBadges)) {
+        quiz.earnedPracticeBadges = draft.practiceBadges;
+    }
     quiz.startedAt = Date.now() - Math.max(0, state.elapsedMs);
     delete quiz.pausedAt;
     delete quiz.completing;

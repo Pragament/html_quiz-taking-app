@@ -94,6 +94,11 @@ a.btn {
 .practice-badge-progress p { margin: 8px 0; overflow-wrap: anywhere; }
 
 .practice-question-navigation { grid-column: 1 / -1; width: 100%; min-width: 0; }
+.practice-question-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(145px, 100%), 1fr)); gap: 10px; margin-bottom: 10px; }
+.practice-question-filters .field { min-width: 0; }
+.practice-question-filters select { min-width: 0; width: 100%; }
+.practice-question-filter-status { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+.practice-question-empty { font-size: 13px; color: var(--muted); padding: 10px; white-space: normal; }
 .practice-question-carousel { display: grid; grid-template-columns: 36px minmax(0, 1fr) 36px; align-items: center; gap: 8px; }
 .practice-question-carousel > .btn { padding: 0; min-height: 40px; font-size: 24px; }
 .practice-question-track { display: flex; flex-wrap: nowrap; gap: 8px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; padding: 6px 4px 10px; scrollbar-width: thin; }
