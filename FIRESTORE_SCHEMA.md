@@ -114,6 +114,10 @@ Lists store question document IDs rather than embedded snapshots. Active student
 
 ## Collections written by the student app
 
+The practice statistics sidebar adds no stored fields or collection. It derives current-attempt correct/wrong counts from the existing question metadata (`topic`/`topicId`, `difficulty`, `skill`, `actfl_level`, `actfl_sublevel`, `actfl_mode`) and `feedback`/`feedbackShown` arrays. Only checked boolean correctness contributes to green/red counts; unchecked and null/undefined correctness remain separate. Existing saved practice state therefore restores these counts without a migration. Missing metadata is displayed as “Not specified.”
+
+The practice question-number selector also requires no new field. It reads `answers`, `feedback`, and `feedbackShown` for status colors. Jumping saves the current answer and changes the existing `currentIndex` in assigned-practice progress; resume restores that position. Selecting a question does not itself grade it. Homepage navigation remains in memory, and quiz/test modes do not expose this selector.
+
 The practice-only floating Coach does not add a Firestore collection or document field. Selected text, dictionary/spelling results, sentence suggestions, and speech transcripts remain temporary UI state and are cleared when leaving practice. They are not included in `practiceState`, completed answers, or reactions unless the user separately enters text into those forms. Dictionary/spelling make explicit online word lookups without Firebase identity; browser speech recognition may use its provider's speech service. See the README for service dependencies and browser limitations.
 
 ### Completed `qb_quiz_submissions_v1` documents
@@ -146,6 +150,7 @@ submissionId = encodeURIComponent(classroomId)__encodeURIComponent(sectionId)__e
   answeredCount: 8,
   gradableCount: 10,
   correctCount: 5,
+  practiceBadges: [/* optional: earned current-attempt awards for practice submissions */],
   answers: [
     {
       questionId: 'question-id',
@@ -206,6 +211,8 @@ Uses the same session/section/admission document ID as the eventual submission:
 Only assigned `practice`, `reading_practice`, and `writing_practice` sessions write this shape. Edits and question transitions autosave; Pause saves before leaving. A failed pause keeps the attempt open. Resume uses stored state instead of reselecting questions and resets the running clock from stored elapsed time. A browser backup keyed by authenticated UID and classroom can recover newer edits made immediately before refresh.
 
 “Restart from Beginning” opens Step 2 and reloads the appropriate list or filters. Saved progress remains until Start/Restart Practice creates fresh answers using the selected settings. Other sessions' progress is unaffected.
+
+The optional `quiz.earnedPracticeBadges` array inside `practiceState` preserves awards already earned in the current attempt. Each award includes `id`, `name`, `label`, `icon`, `threshold`, `minimum`, `correct`, `checked`, `accuracy`, and `earned: true` at the time it qualified. Completed practice submissions copy this array to the optional top-level `practiceBadges` field. Older snapshots without it derive any currently qualifying awards on resume. No separate badge collection, lifetime counter, or rules change is required. The current-attempt awards are client-computed learning feedback, not server-certified proficiency. Restart clears them; repeated question IDs cannot increase the distinct-question count. See the README for thresholds and badge types.
 
 Drafts are excluded from completed-history/report queries after loading, pending-session completion checks, duplicate checks, and historical AI memory. Final submission replaces the draft with the completed shape; there is no required `status: 'submitted'` field on completed records. Older completed records lacking `authUid` remain readable by the matching active profile's student key. Homepage practice writes neither shape.
 

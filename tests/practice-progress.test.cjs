@@ -23,6 +23,7 @@ function setup() {
             showSpeaker: true, listenRespond: true, useAiSelectionMemory: true
         }, currentIndex: 1, loadedQuestions: [], hasSubmittedCurrentSession: false,
         practiceSaveQueue: Promise.resolve(), practiceSaveTimer: null, practiceSavingAction: false, practiceDrafts: new Map(),
+        practiceQuestionNavigation: { render() {} },
         $: node, els: { classroomLabel: { textContent: 'Practice One' } },
         db: {}, COLLECTIONS: { submissions: 'submissions' }, doc: (db, collection, id) => id,
         setDoc: async (id, value) => { if (ctx.failWrite) throw new Error('Offline'); records.set(id, structuredClone(value)); },

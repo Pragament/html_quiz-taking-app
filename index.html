@@ -6,13 +6,13 @@
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
-    <link rel="stylesheet" href="styles.css?v=2026.10.18.1" />
+    <link rel="stylesheet" href="styles.css?v=2026.10.21.3" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
-    <div class="app-version-badge">v2026.10.18.1</div>
+    <div class="app-version-badge">v2026.10.21.3</div>
     <header class="topbar" id="appHeader"></header>
 
     <main class="app-shell">
@@ -171,6 +171,30 @@
                     <summary>AI question selection memory</summary>
                     <div id="selectionMemoryDetails"></div>
                 </details>
+                <nav id="practiceQuestionNavigation" class="practice-question-navigation" aria-label="Practice question selector" hidden>
+                    <div class="practice-question-carousel">
+                        <button id="practiceQuestionScrollBack" class="btn" type="button" aria-label="Scroll question numbers left">‹</button>
+                        <div id="practiceQuestionTrack" class="practice-question-track" role="group" aria-label="Question numbers. Use arrow keys, Home and End to move focus; Enter to open a question."></div>
+                        <button id="practiceQuestionScrollForward" class="btn" type="button" aria-label="Scroll question numbers right">›</button>
+                    </div>
+                    <div class="practice-question-legend" aria-label="Question status legend">
+                        <span><i class="question-unanswered"></i>Not answered</span>
+                        <span><i class="question-answered"></i>Answered, not checked</span>
+                        <span><i class="question-correct"></i>Correct</span>
+                        <span><i class="question-wrong"></i>Incorrect</span>
+                        <span><i class="question-ungraded"></i>Checked, ungraded</span>
+                        <span><i class="question-current-key"></i>Current question</span>
+                    </div>
+                </nav>
+            </aside>
+            <aside id="practiceStatsSidebar" class="panel practice-stats-sidebar" aria-label="Practice statistics" hidden>
+                <button id="practiceStatsToggle" class="btn practice-stats-toggle" type="button" aria-expanded="false" aria-controls="practiceStatsBody">Show Stats</button>
+                <div id="practiceStatsBody" hidden>
+                    <h2>Practice statistics</h2>
+                    <p class="practice-stats-note">Current attempt · checked answers only</p>
+                    <div id="practiceStatsSummary" class="practice-stats-summary" aria-live="polite" aria-atomic="true"></div>
+                    <div id="practiceStatsGroups"></div>
+                </div>
             </aside>
             <section class="panel quiz-panel" id="quizPanel">
                 <div class="explanation-frame-panel" id="explanationFramePanel" hidden>
@@ -265,6 +289,6 @@
         <button id="coachLauncher" class="btn primary coach-launcher" type="button" aria-expanded="false" aria-controls="coachPanel">Practice Coach</button>
     </aside>
     <div id="toast" class="toast"></div>
-    <script type="module" src="app.js?v=2026.10.18.1"></script>
+    <script type="module" src="app.js?v=2026.10.21.3"></script>
 </body>
 </html>

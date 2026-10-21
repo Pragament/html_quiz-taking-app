@@ -44,6 +44,29 @@ For teacher lists, questions are first loaded in `questionIds` order. Admission-
 - Short-answer word banks always use original answer words. Viewing/changing translations preserves selected words. Word-bank answers are graded in the original language; typed answers use the selected language.
 - MCQ, True/False, and FIB are auto-graded. Short answers receive local assessment with an `aiReview`; cached AI models can improve semantic scoring. Short answers are correct at 90% of available marks, otherwise incorrect; `isCorrect` is null when no gradable expected answer exists. They are not universally stored as ungraded/manual-review responses.
 - Displayed point totals are rounded to one decimal place. Grading still retains its numeric values.
+- A collapsible left statistics sidebar is available only in practice. It starts collapsed to preserve explanation width and opens with **Show Stats**. It displays green correct and red wrong counts by topic, difficulty, skill, ACTFL level, ACTFL sublevel, and ACTFL mode for the current attempt. Only checked feedback is counted; unchecked and ungraded answers are tracked separately. Missing metadata appears as “Not specified.” Counts are rebuilt from the existing feedback snapshots after resume and reset with a restarted attempt. On smaller screens, the sidebar stacks above the question area.
+
+## Practice question selector
+
+The Questions header includes a single-line, horizontally scrollable numbered selector in practice modes. Tap a number to revisit a question or move ahead. Touch scrolling and left/right scroll buttons browse long attempts; arrow keys, Home/End, then Enter/Space support keyboard navigation. The active number stays visible when changing questions.
+
+The legend identifies gray unanswered questions, amber answered-but-unchecked drafts, green correct answers, red incorrect answers, purple checked/ungraded answers, and a blue outline around the current question. Status labels are also available to screen readers.
+
+Jumping saves the outgoing answer and restores the destination's answer and feedback without checking or grading it automatically. Already checked answers remain locked. Assigned practice also saves the selected position for resume; homepage practice keeps it only in memory. Navigation is blocked during checking, pausing, and submission. With optional AI selection, later checked questions and answer drafts retain their numbered slots while remaining unanswered slots can be reordered. Quiz/test modes do not show this selector.
+
+## Practice badges
+
+Earned badges appear in the **Questions header**, beside the timer, score, and Pause controls. Expand **Badge requirements and progress** to see criteria and current counts. These are current-attempt achievements; they do not pool questions across sessions or certify ACTFL proficiency.
+
+| Badge | Requirement |
+| --- | --- |
+| Topic Master, per topic | At least 10 distinct checked, gradable questions and 90% correct |
+| Difficulty Champion | At least 10 distinct Hard/Very Hard questions combined and 80% correct |
+| Listening / Reading / Writing / Speaking Star | At least 10 distinct questions in the skill and 80% correct |
+| ACTFL Practice Star, per level | At least 10 distinct questions tagged with the level and 80% correct |
+| Interpretive / Interpersonal / Presentational Explorer | At least 10 distinct questions in the communication mode and 80% correct |
+
+Unchecked, ungraded, and missing-ID questions do not qualify. Repeated question IDs count once; eligibility uses exact ratios rather than rounded display percentages. Earned badges remain earned within the attempt even if later accuracy drops. Assigned practice snapshots restore them after refresh, and completed practice submissions retain award metadata. Restart begins a fresh attempt and fresh badges. Homepage practice badges remain in memory only. Missing metadata does not earn a badge for an unspecified category. Improvement/consistency badges and lifetime achievements are not implemented.
 
 ## Practice Coach
 

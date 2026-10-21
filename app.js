@@ -1,6 +1,9 @@
 import { maybePromptGuidedTour } from './tours.js';
 import { initializeHeader, setHeaderStudent } from './header.js';
-import { initializePracticeCoach } from './coach.js?v=2026.10.18.1';
+import { initializePracticeCoach } from './coach.js?v=2026.10.21.3';
+import { summarizePracticeStats } from './practice-stats.js?v=2026.10.21.3';
+import { initializePracticeBadgeHeader } from './practice-badges.js?v=2026.10.21.3';
+import { initializePracticeQuestionNavigation } from './question-navigation.js?v=2026.10.21.3';
 import { auth, db, loginUrl } from './firebase.js';
 import {
     collection,
@@ -66,7 +69,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.18.1';
+const APP_VERSION = '2026.10.21.3';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -130,6 +133,16 @@ if (window.mermaid) {
 }
 
 bindEvents();
+const practiceBadges = initializePracticeBadgeHeader({
+    isVisible: () => !!quiz && shouldShowPracticeQuizSettings() && !els.quizView.hidden,
+    getAttempt: () => quiz
+});
+const practiceQuestionNavigation = initializePracticeQuestionNavigation({
+    isVisible: () => !!quiz && shouldShowPracticeQuizSettings() && !els.quizView.hidden,
+    getAttempt: () => quiz, getIndex: () => currentIndex, isAnswered,
+    isBusy: () => practiceSavingAction || !!quiz?.completing || !!quiz?.navigationSubmitting || $('nextQuestionBtn').disabled,
+    onJump: jumpToPracticeQuestion
+});
 initializePracticeCoach({
     isPracticeMode: () => !!quiz && shouldShowPracticeQuizSettings() && !els.quizView.hidden,
     generateSentence: async text => {
@@ -142,6 +155,13 @@ initializeSpeechControls();
 preloadOfflineAiModels();
 onAuthStateChanged(auth, handleStudentAuth);
 function bindEvents() {
+    $('practiceStatsToggle').addEventListener('click', () => {
+        const expanded = $('practiceStatsToggle').getAttribute('aria-expanded') !== 'true';
+        $('practiceStatsToggle').setAttribute('aria-expanded', String(expanded));
+        $('practiceStatsToggle').textContent = expanded ? 'Hide Stats' : 'Show Stats';
+        $('practiceStatsBody').hidden = !expanded;
+        els.quizView.classList.toggle('practice-stats-open', expanded);
+    });
     $('questionReactionPanel').addEventListener('click', event => {
         if (event.target.closest('[data-retry-reaction]')) {
             questionReactions.delete(currentReactionKey());
@@ -169,9 +189,10 @@ function bindEvents() {
         if (button) openQuizSession(button.dataset.sessionId, { restart: button.dataset.practiceAction === 'restart' });
     });
     ['input', 'change'].forEach(type => els.answerArea.addEventListener(type, () => {
-        if (!canSavePracticeProgress() || quiz.completing) return;
+        if (!quiz || !shouldShowPracticeQuizSettings() || quiz.completing) return;
         saveCurrentAnswer();
-        schedulePracticeSave();
+        practiceQuestionNavigation.render();
+        if (canSavePracticeProgress()) schedulePracticeSave();
     }));
     window.addEventListener('pagehide', () => {
         if (!canSavePracticeProgress() || quiz.completing) return;
@@ -1404,14 +1425,16 @@ async function reorderRemainingQuestions() {
         refreshSelectionMemoryDisplay([]);
         return;
     }
-    const ranked = await rankQuestionsForStudent(remaining, quiz.performanceMemory, { useOfflineSemantic: false });
+    const isLocked = offset => quiz.feedbackShown[currentIndex + 1 + offset] || isAnswered(remaining[offset], quiz.answers[currentIndex + 1 + offset]);
+    const ranked = await rankQuestionsForStudent(remaining.filter((question, offset) => !isLocked(offset)), quiz.performanceMemory, { useOfflineSemantic: false });
     const answerByQuestionId = new Map(quiz.answers.map(answer => [answer.questionId, answer]));
     const feedbackByQuestionId = new Map(quiz.feedback.map((feedback, index) => [quiz.questions[index].id, feedback]));
     const feedbackShownByQuestionId = new Map(quiz.feedbackShown.map((shown, index) => [quiz.questions[index].id, shown]));
     const promptRevealedByQuestionId = new Map(quiz.promptRevealed.map((shown, index) => [quiz.questions[index].id, shown]));
     const translationByQuestionId = new Map(quiz.translationChoices.map((language, index) => [quiz.questions[index].id, language]));
     const lockedQuestions = quiz.questions.slice(0, currentIndex + 1);
-    quiz.questions = [...lockedQuestions, ...ranked.map(item => item.question)];
+    let rankedIndex = 0;
+    quiz.questions = [...lockedQuestions, ...remaining.map((question, offset) => isLocked(offset) ? question : ranked[rankedIndex++].question)];
     quiz.answers = quiz.questions.map(question => answerByQuestionId.get(question.id) || emptyAnswer(question));
     quiz.feedback = quiz.questions.map(question => feedbackByQuestionId.get(question.id) || null);
     quiz.feedbackShown = quiz.questions.map(question => feedbackShownByQuestionId.get(question.id) || false);
@@ -1644,6 +1667,9 @@ function emptyAnswer(question) {
 }
 
 function renderQuiz() {
+    practiceQuestionNavigation.render();
+    practiceBadges.render();
+    renderPracticeStats();
     $('practiceProgressControls').hidden = !canSavePracticeProgress();
     const question = quiz.questions[currentIndex];
     const answer = quiz.answers[currentIndex];
@@ -1870,6 +1896,22 @@ function setQuestionTranslation(language) {
     const answer = quiz.answers[currentIndex];
     answer.translationLanguage = selectedLanguage;
     renderQuiz();
+}
+
+function renderPracticeStats() {
+    const visible = !!quiz && shouldShowPracticeQuizSettings();
+    $('practiceStatsSidebar').hidden = !visible;
+    els.quizView.classList.toggle('has-practice-stats', visible);
+    if (!visible) return;
+    const stats = summarizePracticeStats(quiz.questions, quiz.feedback, quiz.feedbackShown);
+    const counts = row => `<span class="practice-stat-correct" aria-label="${row.correct} correct">${row.correct} correct</span><span class="practice-stat-wrong" aria-label="${row.wrong} wrong">${row.wrong} wrong</span>`;
+    $('practiceStatsSummary').innerHTML = `${counts(stats.totals)}<span class="practice-stats-note">${stats.totals.unchecked} not checked · ${stats.totals.ungraded} ungraded</span>`;
+    $('practiceStatsGroups').innerHTML = stats.groups.map(group => `
+        <section class="practice-stat-group">
+            <h3>${esc(group.label)}</h3>
+            <ul>${group.rows.map(row => `<li><span class="practice-stat-label">${esc(row.label)}</span><span class="practice-stat-counts">${counts(row)}</span></li>`).join('')}</ul>
+        </section>
+    `).join('');
 }
 
 function renderSelectionMemory() {
@@ -2277,6 +2319,18 @@ function saveCurrentAnswer() {
     }
 }
 
+async function jumpToPracticeQuestion(index) {
+    if (!quiz || quiz.submitted || quiz.completing || quiz.navigationSubmitting || !shouldShowPracticeQuizSettings()
+        || practiceSavingAction || $('nextQuestionBtn').disabled || !Number.isInteger(index)
+        || index < 0 || index >= quiz.questions.length || index === currentIndex) return;
+    saveCurrentAnswer();
+    window.speechSynthesis?.cancel();
+    currentIndex = index;
+    renderSelectionMemory();
+    renderQuiz();
+    if (canSavePracticeProgress()) await savePracticeProgress();
+}
+
 async function advanceQuestion() {
     if (practiceSavingAction) return;
     saveCurrentAnswer();
@@ -2302,17 +2356,45 @@ async function showInstantFeedback() {
     const question = quiz.questions[currentIndex];
     const nextButton = $('nextQuestionBtn');
     nextButton.disabled = true;
+    practiceQuestionNavigation.render();
     nextButton.textContent = question.type === 'short_answer' ? 'Assessing...' : 'Checking...';
-    quiz.feedback[currentIndex] = await gradeAnswerWithOfflineAi(question, quiz.answers[currentIndex]);
-    quiz.feedbackShown[currentIndex] = true;
-    await updateLiveSelectionMemory(quiz.feedback[currentIndex]);
-    renderSelectionMemory();
-    renderQuiz();
-    nextButton.disabled = false;
-    if (canSavePracticeProgress()) await savePracticeProgress();
+    try {
+        quiz.feedback[currentIndex] = await gradeAnswerWithOfflineAi(question, quiz.answers[currentIndex]);
+        quiz.feedbackShown[currentIndex] = true;
+        await updateLiveSelectionMemory(quiz.feedback[currentIndex]);
+        renderSelectionMemory();
+        renderQuiz();
+        if (canSavePracticeProgress()) await savePracticeProgress();
+    } catch (error) {
+        toast(error.message || 'Unable to check this answer. Try again.');
+        nextButton.textContent = nextQuestionButtonLabel();
+    } finally {
+        nextButton.disabled = false;
+        practiceQuestionNavigation.render();
+    }
 }
 
 async function submitQuiz() {
+    if (!quiz || quiz.submitted || quiz.navigationSubmitting || practiceSavingAction) return;
+    const attempt = quiz;
+    attempt.navigationSubmitting = true;
+    $('nextQuestionBtn').disabled = true;
+    practiceQuestionNavigation.render();
+    try {
+        await performQuizSubmission();
+    } catch (error) {
+        toast(error.message || 'Unable to assess answers. Try again.');
+        setStatus('Submission could not be completed');
+    } finally {
+        if (quiz === attempt) {
+            delete quiz.navigationSubmitting;
+            $('nextQuestionBtn').disabled = false;
+            practiceQuestionNavigation.render();
+        }
+    }
+}
+
+async function performQuizSubmission() {
     if (!quiz || quiz.submitted || practiceSavingAction) return;
     saveCurrentAnswer();
     const unanswered = quiz.answers.filter((a, i) => !isAnswered(quiz.questions[i], a)).length;
@@ -2352,6 +2434,7 @@ async function submitQuiz() {
         gradableCount: gradable.length,
         correctCount: correct,
         answers: gradedAnswers,
+        ...(shouldShowPracticeQuizSettings() ? { practiceBadges: quiz.earnedPracticeBadges || [] } : {}),
         submittedAt: serverTimestamp(),
         submittedAtMillis: Date.now()
     };
@@ -3016,14 +3099,14 @@ function practiceDraftData(status = 'in_progress') {
 }
 
 function schedulePracticeSave() {
-    if (!canSavePracticeProgress() || quiz.completing || practiceSavingAction) return;
+    if (!canSavePracticeProgress() || quiz.completing || quiz.navigationSubmitting || practiceSavingAction) return;
     cachePracticeDraft(practiceDraftData());
     clearTimeout(practiceSaveTimer);
     practiceSaveTimer = setTimeout(() => savePracticeProgress(), 600);
 }
 
 async function savePracticeProgress(status = 'in_progress') {
-    if (!canSavePracticeProgress() || quiz.completing) return true;
+    if (!canSavePracticeProgress() || quiz.completing || quiz.navigationSubmitting) return true;
     clearTimeout(practiceSaveTimer);
     const draft = practiceDraftData(status);
     const id = submissionDocId();
@@ -3103,6 +3186,7 @@ async function resumePractice(id) {
     quiz.startedAt = Date.now() - Math.max(0, state.elapsedMs);
     delete quiz.pausedAt;
     delete quiz.completing;
+    delete quiz.navigationSubmitting;
     currentIndex = state.currentIndex;
     loadedQuestions = quiz.questions;
     hasSubmittedCurrentSession = false;
