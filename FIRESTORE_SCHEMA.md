@@ -116,6 +116,10 @@ Lists store question document IDs rather than embedded snapshots. Active student
 
 The practice statistics sidebar adds no stored fields or collection. It derives current-attempt correct/wrong counts from the existing question metadata (`topic`/`topicId`, `difficulty`, `skill`, `actfl_level`, `actfl_sublevel`, `actfl_mode`) and `feedback`/`feedbackShown` arrays. Only checked boolean correctness contributes to green/red counts; unchecked and null/undefined correctness remain separate. Existing saved practice state therefore restores these counts without a migration. Missing metadata is displayed as “Not specified.”
 
+The separate incorrect-answer review panel also derives from existing `questions`, raw `answers`, `feedback`, and `feedbackShown`. A row requires `feedbackShown[index] === true`, `feedback[index].isCorrect === false`, question type `fib` or `short_answer`, and a nonempty raw student response. It displays saved prompt/correct-answer/explanation metadata and the graded score. Skips, empty answers, other types, correct results, and ungraded feedback are excluded. Cards/table view choice and collapse state are not persisted, and no new collection or rules are needed.
+
+Review score sorting is also temporary UI state. Ascending/descending use the existing earned/max score ratio, preserve question order for ties, and do not modify saved questions or grades.
+
 The practice question-number selector also requires no new field. It reads `answers`, `feedback`, and `feedbackShown` for status colors. Jumping saves the current answer and changes the existing `currentIndex` in assigned-practice progress; resume restores that position. Selecting a question does not itself grade it. Homepage navigation remains in memory, and quiz/test modes do not expose this selector.
 
 The selector's difficulty/skill/ACTFL filters read the existing question snapshot fields and narrow only the displayed numbers. They do not mutate the question list or progress snapshot. Filter selections are not persisted; reopening a saved attempt defaults to All.

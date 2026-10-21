@@ -497,18 +497,45 @@ a.btn {
     grid-template-columns: 250px minmax(0, 1fr);
 }
 
+.quiz-layout.has-practice-stats.practice-review-open {
+    grid-template-columns: 360px minmax(0, 1fr);
+}
+
 .quiz-layout.has-practice-stats > .nav-panel {
     grid-column: 1 / -1;
 }
 
-.practice-stats-sidebar {
+.practice-sidebars {
     position: sticky;
     top: 14px;
     min-width: 0;
-    padding: 10px;
     max-height: calc(100dvh - 28px);
     overflow-y: auto;
     scrollbar-width: thin;
+    display: grid;
+    gap: 14px;
+}
+
+.practice-stats-sidebar, .practice-mistake-sidebar { min-width: 0; padding: 10px; }
+.practice-mistake-sidebar h2 { font-size: 16px; margin: 14px 0 6px; }
+.practice-mistake-cards { display: grid; gap: 12px; margin-top: 12px; }
+.practice-mistake-sort { margin-top: 10px; }
+.practice-mistake-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--panel-soft); overflow-wrap: anywhere; font-size: 13px; }
+.practice-mistake-card h3 { margin: 0 0 8px; font-size: 13px; }
+.practice-mistake-card dl { margin: 12px 0 0; display: grid; gap: 12px; }
+.practice-mistake-card dt { font-weight: 700; margin-bottom: 4px; }
+.practice-mistake-card dd { margin: 0; }
+.practice-mistake-value { white-space: pre-wrap; overflow-wrap: anywhere; }
+.practice-mistake-table-scroll { overflow-x: auto; max-width: 100%; margin-top: 12px; }
+.practice-mistake-table { border-collapse: collapse; width: 100%; min-width: 780px; font-size: 13px; }
+.practice-mistake-table th, .practice-mistake-table td { border: 1px solid var(--line); padding: 10px; text-align: left; vertical-align: top; min-width: 130px; overflow-wrap: anywhere; }
+.practice-mistake-table caption { text-align: left; font-weight: 700; margin-bottom: 8px; }
+.practice-mistake-table th { background: var(--panel-soft); }
+
+@media (max-width: 1100px) {
+    .quiz-layout.practice-review-open .quiz-panel.has-explanation { grid-template-columns: minmax(0, 1fr); }
+    .quiz-layout.practice-review-open .explanation-resizer { display: none; }
+    .quiz-layout.practice-review-open .explanation-frame-panel { position: static; }
 }
 
 .practice-stats-toggle { width: 100%; padding: 8px; white-space: normal; }
@@ -1509,11 +1536,12 @@ a.btn {
 
 @media (max-width: 900px) {
     .quiz-layout.has-practice-stats,
-    .quiz-layout.has-practice-stats.practice-stats-open {
+    .quiz-layout.has-practice-stats.practice-stats-open,
+    .quiz-layout.has-practice-stats.practice-review-open {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .practice-stats-sidebar {
+    .practice-sidebars {
         position: static;
         max-height: 50dvh;
     }

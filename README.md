@@ -46,6 +46,16 @@ For teacher lists, questions are first loaded in `questionIds` order. Admission-
 - Displayed point totals are rounded to one decimal place. Grading still retains its numeric values.
 - A collapsible left statistics sidebar is available only in practice. It starts collapsed to preserve explanation width and opens with **Show Stats**. It displays green correct and red wrong counts by topic, difficulty, skill, ACTFL level, ACTFL sublevel, and ACTFL mode for the current attempt. Only checked feedback is counted; unchecked and ungraded answers are tracked separately. Missing metadata appears as “Not specified.” Counts are rebuilt from the existing feedback snapshots after resume and reset with a restarted attempt. On smaller screens, the sidebar stacks above the question area.
 
+## Incorrect-answer review
+
+Practice has a second independently collapsible left panel, **Review mistakes**, stacked with Stats in the same sidebar column. It includes only checked, incorrect FIB and short-answer responses with a nonempty student answer. Skipped/unchecked drafts, whitespace-only answers, correct responses, ungraded responses, MCQ, and True/False questions are excluded. A partially completed FIB response counts as nonempty if at least one blank contains an answer.
+
+Cards are the default; **Cards** and **Table** switch the presentation. Both show Question, Student answer, Score, Teacher correct answer, and Explanation text. Scores use the saved grading result, including short-answer partial marks. Prompts use the existing rich-content sanitizer/renderer; student answers and explanations are escaped text. The table scrolls horizontally within the panel. Opening review widens the left column on desktop; narrow layouts stack the explanation above the answer work area as needed and put both sidebars above the question.
+
+The panel derives its contents from the current attempt and updates when feedback changes. Resume uses the existing saved answers and feedback; no new Firestore fields are required. View choice is temporary, with cards and a collapsed panel on a new/resumed attempt.
+
+**Sort by** offers Question order (default), Score ascending, and Score descending in both cards and table views. Score sorting compares earned points divided by maximum points, so different score scales are comparable. Equal scores keep question-number order; unavailable scores come last. Sort choice survives view switches/collapse within the current attempt but resets on a new/resumed attempt and is not saved to Firestore. It changes only the review display, not the quiz question order.
+
 ## Practice question selector
 
 The Questions header includes a single-line, horizontally scrollable numbered selector in practice modes. Tap a number to revisit a question or move ahead. Touch scrolling and left/right scroll buttons browse long attempts; arrow keys, Home/End, then Enter/Space support keyboard navigation. The active number stays visible when changing questions.
@@ -55,6 +65,8 @@ Difficulty, skill, ACTFL level, sublevel, and mode dropdowns filter the question
 The legend identifies gray unanswered questions, amber answered-but-unchecked drafts, green correct answers, red incorrect answers, purple checked/ungraded answers, and a blue outline around the current question. Status labels are also available to screen readers.
 
 Jumping saves the outgoing answer and restores the destination's answer and feedback without checking or grading it automatically. Already checked answers remain locked. Assigned practice also saves the selected position for resume; homepage practice keeps it only in memory. Navigation is blocked during checking, pausing, and submission. With optional AI selection, later checked questions and answer drafts retain their numbered slots while remaining unanswered slots can be reordered. Quiz/test modes do not show this selector.
+
+**Skip** appears beside the question action in practice modes. It saves the current draft and moves to the next question without grading, changing feedback, or marking it incorrect. From the last question it wraps to question 1 and never submits automatically. It follows the full attempt order, independent of selector filters. Assigned practice saves the new position; homepage practice stays in memory. Skip is disabled during checking/submission and when the attempt contains only one question. An untouched skipped question remains “Not answered”; a retained draft remains “Answered, not checked.”
 
 ## Practice badges
 

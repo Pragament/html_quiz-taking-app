@@ -80,6 +80,35 @@ test('jump is ignored outside practice, while busy, after submission, or for inv
     assert.equal(ctx.savedIndex, undefined);
 });
 
+test('Skip moves forward or wraps from the last question without grading, retaining drafts and saving position', async () => {
+    const { ctx } = setup();
+    await ctx.skipPracticeQuestion();
+    assert.equal(ctx.currentIndex, 2);
+    assert.equal(ctx.quiz.answers[1].draft, 'saved');
+    assert.equal(ctx.persistedIndex, 2);
+    await ctx.skipPracticeQuestion();
+    assert.equal(ctx.currentIndex, 0);
+    assert.equal(ctx.quiz.answers[2].draft, 'saved');
+    assert.equal(ctx.persistedIndex, 0);
+    assert.equal(ctx.quiz.feedback, undefined);
+});
+
+test('Skip does nothing in test modes, while grading, or in a single-question attempt', async () => {
+    const { ctx, next } = setup();
+    ctx.shouldShowPracticeQuizSettings = () => false;
+    await ctx.skipPracticeQuestion();
+    assert.equal(ctx.currentIndex, 1);
+    ctx.shouldShowPracticeQuizSettings = () => true;
+    next.disabled = true;
+    await ctx.skipPracticeQuestion();
+    assert.equal(ctx.currentIndex, 1);
+    next.disabled = false;
+    ctx.quiz.questions = [{}];
+    ctx.currentIndex = 0;
+    await ctx.skipPracticeQuestion();
+    assert.equal(ctx.savedIndex, undefined);
+});
+
 test('AI ranking leaves later checked questions and unchecked drafts in their numbered slots', async () => {
     const questions = ['current', 'empty1', 'checked', 'draft', 'empty2'].map(id => ({ id }));
     const ctx = vm.createContext({

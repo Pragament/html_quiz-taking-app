@@ -6,13 +6,13 @@
     <title>Quiz Activity</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/introjs.min.css" />
-    <link rel="stylesheet" href="styles.css?v=2026.10.21.5" />
+    <link rel="stylesheet" href="styles.css?v=2026.10.21.8" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/intro.js@8.5.0/minified/intro.min.js"></script>
 </head>
 <body>
-    <div class="app-version-badge">v2026.10.21.5</div>
+    <div class="app-version-badge">v2026.10.21.8</div>
     <header class="topbar" id="appHeader"></header>
 
     <main class="app-shell">
@@ -192,7 +192,8 @@
                     </div>
                 </nav>
             </aside>
-            <aside id="practiceStatsSidebar" class="panel practice-stats-sidebar" aria-label="Practice statistics" hidden>
+            <div id="practiceSidebars" class="practice-sidebars" hidden>
+              <aside id="practiceStatsSidebar" class="panel practice-stats-sidebar" aria-label="Practice statistics" hidden>
                 <button id="practiceStatsToggle" class="btn practice-stats-toggle" type="button" aria-expanded="false" aria-controls="practiceStatsBody">Show Stats</button>
                 <div id="practiceStatsBody" hidden>
                     <h2>Practice statistics</h2>
@@ -200,7 +201,28 @@
                     <div id="practiceStatsSummary" class="practice-stats-summary" aria-live="polite" aria-atomic="true"></div>
                     <div id="practiceStatsGroups"></div>
                 </div>
-            </aside>
+              </aside>
+              <aside id="practiceMistakeSidebar" class="panel practice-mistake-sidebar" aria-label="Incorrect answer review" hidden>
+                <button id="practiceMistakeToggle" class="btn practice-stats-toggle" type="button" aria-expanded="false" aria-controls="practiceMistakeBody">Review mistakes (0)</button>
+                <div id="practiceMistakeBody" hidden>
+                    <h2>Incorrect answers</h2>
+                    <p id="practiceMistakeCount" class="practice-stats-note" role="status" aria-live="polite"></p>
+                    <div class="actions" role="group" aria-label="Incorrect answer view">
+                        <button id="practiceMistakeCards" class="btn primary" type="button" aria-pressed="true">Cards</button>
+                        <button id="practiceMistakeTable" class="btn" type="button" aria-pressed="false">Table</button>
+                    </div>
+                    <label class="field practice-mistake-sort">
+                        <span>Sort by</span>
+                        <select id="practiceMistakeSort">
+                            <option value="question">Question order</option>
+                            <option value="score-asc">Score ascending (%)</option>
+                            <option value="score-desc">Score descending (%)</option>
+                        </select>
+                    </label>
+                    <div id="practiceMistakeContent"></div>
+                </div>
+              </aside>
+            </div>
             <section class="panel quiz-panel" id="quizPanel">
                 <div class="explanation-frame-panel" id="explanationFramePanel" hidden>
                     <div class="review-head">
@@ -225,6 +247,7 @@
                     <div id="instantFeedbackPanel" class="instant-feedback-panel" hidden></div>
                     <section id="questionReactionPanel" class="question-reaction-panel" aria-label="Question feedback"></section>
                     <div class="actions spread">
+                        <button class="btn" id="skipQuestionBtn" type="button" hidden>Skip</button>
                         <button class="btn primary" id="nextQuestionBtn">Next</button>
                     </div>
                 </div>
@@ -294,6 +317,6 @@
         <button id="coachLauncher" class="btn primary coach-launcher" type="button" aria-expanded="false" aria-controls="coachPanel">Practice Coach</button>
     </aside>
     <div id="toast" class="toast"></div>
-    <script type="module" src="app.js?v=2026.10.21.5"></script>
+    <script type="module" src="app.js?v=2026.10.21.8"></script>
 </body>
 </html>

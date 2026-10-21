@@ -1,9 +1,10 @@
 import { maybePromptGuidedTour } from './tours.js';
 import { initializeHeader, setHeaderStudent } from './header.js';
-import { initializePracticeCoach } from './coach.js?v=2026.10.21.5';
-import { summarizePracticeStats } from './practice-stats.js?v=2026.10.21.5';
-import { initializePracticeBadgeHeader, snapshotPracticeBadges } from './practice-badges.js?v=2026.10.21.5';
-import { initializePracticeQuestionNavigation } from './question-navigation.js?v=2026.10.21.5';
+import { initializePracticeCoach } from './coach.js?v=2026.10.21.8';
+import { summarizePracticeStats } from './practice-stats.js?v=2026.10.21.8';
+import { initializePracticeBadgeHeader, snapshotPracticeBadges } from './practice-badges.js?v=2026.10.21.8';
+import { initializePracticeQuestionNavigation } from './question-navigation.js?v=2026.10.21.8';
+import { initializePracticeMistakeReview } from './practice-mistakes.js?v=2026.10.21.8';
 import { auth, db, loginUrl } from './firebase.js';
 import {
     collection,
@@ -69,7 +70,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.21.5';
+const APP_VERSION = '2026.10.21.8';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -142,6 +143,10 @@ const practiceQuestionNavigation = initializePracticeQuestionNavigation({
     getAttempt: () => quiz, getIndex: () => currentIndex, isAnswered,
     isBusy: () => practiceSavingAction || !!quiz?.completing || !!quiz?.navigationSubmitting || $('nextQuestionBtn').disabled,
     onJump: jumpToPracticeQuestion
+});
+const practiceMistakeReview = initializePracticeMistakeReview({
+    isVisible: () => !!quiz && shouldShowPracticeQuizSettings() && !els.quizView.hidden,
+    getAttempt: () => quiz, sanitizeRich, esc, renderRich, feedbackPoints, formatPoints, correctAnswerText, questionPromptText
 });
 initializePracticeCoach({
     isPracticeMode: () => !!quiz && shouldShowPracticeQuizSettings() && !els.quizView.hidden,
@@ -217,6 +222,7 @@ function bindEvents() {
     $('loadQuestionsBtn').addEventListener('click', loadPublishedQuestions);
     $('startQuizBtn').addEventListener('click', startQuiz);
     $('nextQuestionBtn').addEventListener('click', advanceQuestion);
+    $('skipQuestionBtn').addEventListener('click', skipPracticeQuestion);
     els.offlineAiStatus.addEventListener('click', toggleOfflineAiDetails);
     els.resetBtn.addEventListener('click', resetApp);
     document.addEventListener('click', event => {
@@ -1667,6 +1673,7 @@ function emptyAnswer(question) {
 }
 
 function renderQuiz() {
+    practiceMistakeReview.render();
     practiceQuestionNavigation.render();
     practiceBadges.render();
     renderPracticeStats();
@@ -1901,6 +1908,7 @@ function setQuestionTranslation(language) {
 function renderPracticeStats() {
     const visible = !!quiz && shouldShowPracticeQuizSettings();
     $('practiceStatsSidebar').hidden = !visible;
+    $('practiceSidebars').hidden = !visible;
     els.quizView.classList.toggle('has-practice-stats', visible);
     if (!visible) return;
     const stats = summarizePracticeStats(quiz.questions, quiz.feedback, quiz.feedbackShown);
@@ -2329,6 +2337,11 @@ async function jumpToPracticeQuestion(index) {
     renderSelectionMemory();
     renderQuiz();
     if (canSavePracticeProgress()) await savePracticeProgress();
+}
+
+async function skipPracticeQuestion() {
+    if (!quiz || quiz.questions.length < 2) return;
+    await jumpToPracticeQuestion((currentIndex + 1) % quiz.questions.length);
 }
 
 async function advanceQuestion() {

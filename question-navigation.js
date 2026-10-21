@@ -31,6 +31,7 @@ export function initializePracticeQuestionNavigation({ isVisible, getAttempt, ge
     const track = document.getElementById('practiceQuestionTrack');
     const previous = document.getElementById('practiceQuestionScrollBack');
     const next = document.getElementById('practiceQuestionScrollForward');
+    const skip = document.getElementById('skipQuestionBtn');
     const filterContainer = document.getElementById('practiceQuestionFilters');
     const resetFilters = document.getElementById('practiceQuestionClearFilters');
     const filterSummary = document.getElementById('practiceQuestionFilterSummary');
@@ -63,6 +64,7 @@ export function initializePracticeQuestionNavigation({ isVisible, getAttempt, ge
     let lastAttempt = null;
     function render() {
         root.hidden = !isVisible();
+        skip.hidden = root.hidden;
         if (root.hidden) { lastIndex = -1; return; }
         const quiz = getAttempt();
         if (lastAttempt !== quiz) filters = {};
@@ -93,6 +95,8 @@ export function initializePracticeQuestionNavigation({ isVisible, getAttempt, ge
         const focusIndex = visibleIndices.includes(current) ? current : visibleIndices[0];
         filterSummary.textContent = `${visibleIndices.length} of ${quiz.questions.length} question numbers shown.${visibleIndices.includes(current) ? '' : ` Current question ${current + 1} is outside these filters.`}`;
         const busy = isBusy();
+        skip.disabled = busy || quiz.questions.length < 2;
+        skip.title = quiz.questions.length < 2 ? 'This attempt has only one question.' : 'Move on without checking this answer. Your draft is kept.';
         const focused = track.contains(document.activeElement);
         const scrollLeft = track.scrollLeft;
         const buttons = visibleIndices.map(index => {
