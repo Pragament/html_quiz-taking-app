@@ -11,8 +11,9 @@ function loadFunction(ctx, name, nextName) {
     vm.runInContext(source.slice(start, end).replace(/\nasync $/, ''), ctx);
 }
 
-test('homepage shows practice setup below sessions and hides it during an attempt', () => {
+test('homepage standalone practice is hidden while assigned setup remains available', () => {
     const ctx = vm.createContext({
+        HOMEPAGE_PRACTICE_ENABLED: false,
         studentProfile: { studentName: 'Student' }, session: null, quiz: null,
         loadedQuestions: [], currentIndex: 3, hasSubmittedCurrentSession: true,
         stopTimer() {}, configureSetupForClassroom() {},
@@ -26,11 +27,13 @@ test('homepage shows practice setup below sessions and hides it during an attemp
     assert.equal(ctx.session.classroom.mode, 'practice');
     assert.equal(ctx.hasSubmittedCurrentSession, false);
     assert.equal(ctx.els.dashboardView.hidden, false);
-    assert.equal(ctx.els.setupView.hidden, false);
+    assert.equal(ctx.els.setupView.hidden, true);
     ctx.showOnly('quiz');
     assert.equal(ctx.els.dashboardView.hidden, true);
     assert.equal(ctx.els.setupView.hidden, true);
     ctx.session = { classroomId: 'teacher-session' };
+    ctx.showOnly('setup');
+    assert.equal(ctx.els.setupView.hidden, false);
     ctx.showOnly('dashboard');
     assert.equal(ctx.els.setupView.hidden, true);
 });

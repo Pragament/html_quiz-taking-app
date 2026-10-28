@@ -13,7 +13,7 @@ function setup() {
     let submissionRows = [];
     let selected = null;
     const ctx = vm.createContext({
-        console, Date, Number, URLSearchParams,
+        console, Date, Number, URLSearchParams, HOMEPAGE_PRACTICE_ENABLED: false,
         $: node, els: { dashboardView: node('dashboard'), resetBtn: node('reset'), welcomeTitle: node('welcome'), classroomLabel: node('label'), questionLoadSummary: node('summary') },
         db: {}, COLLECTIONS: { classrooms: 'classrooms', submissions: 'submissions' },
         collection: (...args) => args, query: (...args) => args, where: (...args) => args, doc: (...args) => args,

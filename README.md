@@ -142,3 +142,5 @@ The Node tests cover app behavior with mocked dependencies; they do not verify d
 Firebase restores the signed-in session across reloads. Dashboard returns to the section homepage; Sign Out ends the Auth session. Login redirects accept only the dashboard, submission list, or submission detail pages. `?show-recent=1` opens the newest completed submission after authentication.
 
 Tours are available for login, dashboard, setup, questions, results, submission history, and details. Opt-out is stored per tour. Pending-session colors highlight due today/within three calendar days and due in four–six days; submitted, overdue, and missing-due-date sessions are filtered out of this list even though styling/status helpers exist for them.
+
+The homepage “Practice without submission” section is temporarily hidden via `HOMEPAGE_PRACTICE_ENABLED` in `app.js`. Its automatic taxonomy fetch is also disabled. Assigned quiz sessions, including assigned practice and saved practice resume, remain available.
