@@ -14,13 +14,18 @@ This describes the current student app and the combined rules in [firestore.rule
   admissionNo: '001',
   studentKey: 'section-id_001',
   studentName: 'Student Name',
+  memberships: { // omitted on legacy profiles
+    'section-id': {
+      studentDocId: '001', admissionNo: '001', studentKey: 'section-id_001', active: true
+    }
+  },
   active: true,
   createdAt: Timestamp, // admin metadata
   updatedAt: Timestamp  // admin metadata
 }
 ```
 
-Login/dashboard directly read the Auth UID document and require an active profile, matching `authUid`, nonempty section/admission number, and the exact derived student key. Preserve admission numbers as strings. The current authenticated user's UID/email are used for new submissions. Name has a display fallback.
+Login/dashboard directly read the Auth UID document and require an active profile, matching `authUid`, and at least one active membership with a nonempty section ID/admission number and the exact derived student key. A present membership map is authoritative; legacy top-level identity is used only when the map is absent. Preserve admission numbers as strings. The current authenticated user's UID/email are used for new submissions. Name has a display fallback.
 
 Rules permit signed-in users to get their own profile and deny client list/write operations. A trusted backend provisions profiles. The student app never reads roster phone numbers or verifies a quiz code/admission/phone prefix.
 
@@ -50,9 +55,9 @@ Rules permit signed-in users to get their own profile and deny client list/write
 }
 ```
 
-The dashboard queries `classrooms where sectionId == profile.sectionId`, then filters enabled, unarchived, not-completed sessions with a valid `dueAt` today or later. It sorts by `dueAt` ascending using the browser's local calendar day for overdue checks. A future `startAt` does not delay access. Missing/invalid due dates are excluded, even though generic date-display helpers have fallback labels. Creation timestamps are used for display, not session sorting.
+The dashboard queries classrooms once per active membership by its `sectionId`, merges the results, then filters enabled, unarchived, not-completed sessions with a valid `dueAt` today or later. It sorts by `dueAt` ascending using the browser's local calendar day for overdue checks. A future `startAt` does not delay access. Missing/invalid due dates are excluded, even though generic date-display helpers have fallback labels. Creation timestamps are used for display, not session sorting.
 
-Selecting/resuming a session directly reads its document and repeats section/enabled/archived/due checks. Rules grant active students same-section reads; submission writes require an enabled, unarchived same-section classroom. Due/start scheduling is not enforced by those rules.
+Selecting/resuming a session directly reads its document and repeats membership/enabled/archived/due checks. The attempt uses the admission number and student key for the classroom’s section. Rules grant active students same-section reads; submission writes require an enabled, unarchived same-section classroom. Due/start scheduling is not enforced by those rules.
 
 | Stored mode | Behavior |
 | --- | --- |
@@ -274,7 +279,7 @@ Assigned quizzes/practice use `'quiz-session'` / classroom ID. Homepage practice
 
 Like/Dislike opens an optional editable comment prefilled from the user's selected options, True/False, labeled filled blanks, or typed/assembled short answer. Prefill uses only the user's response, is capped at 2,000 characters, and can be edited or cleared. Save Feedback explicitly writes the record; blank comments are omitted, removing any old comment on replacement. Reaction writes are independent of quiz grading/submission and are allowed by the UI even in homepage practice.
 
-The student write block validates active profile, UID, the double-underscore ID, published question, allowed value, exact field set, source pair, server timestamp, and comment type/length. Quiz-session sources must be enabled/unarchived and in the profile section.
+The student write block validates active profile, UID, the double-underscore ID, published question, allowed value, exact field set, source pair, server timestamp, and comment type/length. Quiz-session sources must be enabled/unarchived and in an active membership section.
 
 **Effective combined permissions differ from that stricter block.** The file also contains a legacy reaction block with public reads, signed-in owner writes using `questionId_uid` (one underscore), and owner deletes, plus a source-session reviewer read block. Matching grants are ORed. Consequently reactions are publicly readable, the owner-delete grant remains effective, and strict field/source validation does not cover legacy-ID writes. The current student UI uses only the double-underscore ID and has no delete control. It does not migrate single-underscore reactions from other apps.
 
@@ -283,13 +288,13 @@ The student write block validates active profile, UID, the double-underscore ID,
 | Operation | Read/query |
 | --- | --- |
 | Student profile | Direct `studentProfiles/{authUid}` |
-| Dashboard sessions | `classrooms where sectionId == profile.sectionId` |
+| Dashboard sessions | `classrooms where sectionId == membership.sectionId (per active membership)` |
 | Session revalidation | Direct `classrooms/{classroomId}` |
 | Taxonomy filters | Read `qb_taxonomy_v1` collection |
 | Teacher list | Direct `qb_lists_v1/{questionBankListId}` |
 | Listed questions | Direct `qb_questions_v1/{questionId}` for each list entry |
 | Non-list questions | `qb_questions_v1 where status == 'published'` |
-| History, drafts, duplicate checks, past AI memory | `qb_quiz_submissions_v1 where studentKey == profile.studentKey`, with purpose-specific client filtering |
+| History, drafts, duplicate checks, past AI memory | `qb_quiz_submissions_v1` by membership `sectionId` and `studentKey` (legacy profile: `studentKey` only); dashboard and history merge active sections; duplicate checks and AI memory use the quiz section |
 | Submission detail / progress resume | Direct `qb_quiz_submissions_v1/{submissionId}` |
 | Current question reaction | Direct `qb_reactions_v1/{questionId}__{authUid}` |
 

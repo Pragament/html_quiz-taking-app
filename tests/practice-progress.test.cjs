@@ -37,6 +37,7 @@ function setup() {
         loadStudentSessions: async () => { ctx.dashboardLoaded = true; },
         setExplanationCollapsed() {}, showOnly: view => { ctx.view = view; }, renderSelectionMemory() {}, renderQuiz() {}
     });
+    vm.runInContext(fs.readFileSync('student-memberships.js', 'utf8').replace(/^export /gm, ''), ctx);
     const badgeSource = fs.readFileSync('practice-badges.js', 'utf8');
     vm.runInContext(badgeSource.slice(0, badgeSource.indexOf('export function initializePracticeBadgeHeader(')).replace(/^export /gm, ''), ctx);
     vm.runInContext(source.slice(source.indexOf('function isPracticeDraft('), source.indexOf('function showOnly(')), ctx);

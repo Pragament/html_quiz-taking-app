@@ -17,14 +17,15 @@ function setup() {
         $: node, els: { dashboardView: node('dashboard'), resetBtn: node('reset'), welcomeTitle: node('welcome'), classroomLabel: node('label'), questionLoadSummary: node('summary') },
         db: {}, COLLECTIONS: { classrooms: 'classrooms', submissions: 'submissions' },
         collection: (...args) => args, query: (...args) => args, where: (...args) => args, doc: (...args) => args,
-        getDocs: async q => ({ docs: q[0][1] === 'submissions' ? submissionRows : rows }), getDoc: async () => selected,
+        getDocs: async q => ({ docs: q[0][1] === 'submissions' ? submissionRows : rows.filter(row => (row.data().sectionId || 's1') === q[1][2]) }), getDoc: async () => selected,
         showOnly: view => { ctx.view = view; }, setStatus: value => { ctx.status = value; },
         toast: value => { ctx.error = value; }, esc: s => String(s).replaceAll('<', '&lt;'),
         stopTimer() {}, configureSetupForClassroom() {}, findExistingClassroomSubmissionId: async () => 'existing&submission',
         hasQuizSessionQuestionList: () => false,
         loadTaxonomyFilters: async () => {}
     });
-    vm.runInContext(`let studentProfile = { sectionId: 's1', admissionNo: '001', studentName: 'Student' }; let recentSessions = []; let session = null; let openingSession = false; let loadedQuestions = []; let quiz = null; let currentIndex = 0; let hasSubmittedCurrentSession = false;`, ctx);
+    vm.runInContext(`let studentProfile = { sectionId: 's1', admissionNo: '001', studentName: 'Student', activeSections: [{ sectionId: 's1', admissionNo: '001', studentKey: 's1_001', legacy: true }] }; let recentSessions = []; let session = null; let openingSession = false; let loadedQuestions = []; let quiz = null; let currentIndex = 0; let hasSubmittedCurrentSession = false;`, ctx);
+    vm.runInContext(fs.readFileSync('student-memberships.js', 'utf8').replace(/^export /gm, ''), ctx);
     const a = source.indexOf('async function loadStudentSessions()');
     const b = source.indexOf('function submissionsUrl(', a);
     vm.runInContext(source.slice(source.indexOf('function isPracticeDraft('), source.indexOf('function canSavePracticeProgress(')), ctx);
@@ -103,4 +104,29 @@ test('previous submission blocks starting a quiz even without a teacher question
     assert.equal(h.node('loadQuestionsBtn').disabled, true);
     assert.match(h.node('summary').innerHTML, /already submitted/);
     assert.match(h.node('summary').innerHTML, /submission.html\?id=existing%26submission/);
+});
+
+test('dashboard merges active sections and opens quizzes under their own membership identity', async () => {
+    const h = setup();
+    vm.runInContext("studentProfile.activeSections.push({ sectionId: 's2', admissionNo: '755', studentKey: 's2_755' })", h.ctx);
+    h.rows([['first', { sectionId: 's1', classEnabled: true }], ['second', { sectionId: 's2', classEnabled: true }], ['other', { sectionId: 's3', classEnabled: true }]]);
+    await h.ctx.loadStudentSessions();
+    assert.deepEqual(Array.from(vm.runInContext('recentSessions.map(s => s.classroomId)', h.ctx)), ['first', 'second']);
+    h.selected({ sectionId: 's2', classEnabled: true });
+    await h.ctx.openQuizSession('second');
+    assert.equal(vm.runInContext('session.studentKey', h.ctx), 's2_755');
+    assert.equal(vm.runInContext('session.admissionNo', h.ctx), '755');
+});
+
+test('membership map is authoritative and legacy fallback applies only without it', () => {
+    const { ctx } = setup();
+    const base = { authUid: 'u', active: true, sectionId: 's1', admissionNo: '001', studentKey: 's1_001' };
+    assert.equal(ctx.activeMemberships(base, 'u')[0].legacy, true);
+    const memberships = { s1: { ...base, active: false }, s2: { active: true, admissionNo: '755', studentKey: 's2_755' },
+        s3: { active: true, admissionNo: '755', studentKey: 's2_755' } };
+    const active = ctx.activeMemberships({ ...base, memberships }, 'u');
+    assert.deepEqual(Array.from(active, m => m.sectionId), ['s2']);
+    assert.equal(ctx.activeMemberships({ ...base, memberships: {} }, 'u').length, 0);
+    assert.equal(ctx.ownsSubmission(active, { sectionId: 's2', studentKey: 's2_755' }), true);
+    assert.equal(ctx.ownsSubmission(active, { sectionId: 's1', studentKey: 's2_755' }), false);
 });

@@ -17,7 +17,7 @@ Responsive student quiz app using Firebase Authentication and Firestore. Student
 ## Student flow
 
 1. Sign in at `login.html`. Accounts and passwords are provisioned by the school; the student app has no registration or password-reset flow.
-2. Read `studentProfiles/{authUid}`. The login/dashboard require an active profile, matching Auth UID, section, admission number, and `studentKey = sectionId_admissionNo`.
+2. Read `studentProfiles/{authUid}`. Login requires an active profile, matching Auth UID, and a valid active section membership. Legacy profiles without `memberships` use their original section fields. The dashboard and submission history combine active sections, and each quiz uses its classroom’s membership identity. Deploy the matching Firestore rules for multi-section access.
 3. The dashboard queries sessions by section and submissions by student key. Pending sessions must be enabled, unarchived, not completed, and have a valid `dueAt` today or later in the browser's local timezone. They are sorted by due date ascending. `startAt` is displayed but does not gate access. Sessions without a valid due date are excluded.
 4. Opening a session rechecks its section and availability. A saved assigned practice attempt resumes; **Restart from Beginning** instead opens Step 2 to review settings. Saved progress is replaced only after **Restart Practice** starts the new attempt.
 5. A teacher-selected `questionBankListId`, or a complete saved class/subject/chapter scope, loads questions automatically. Other sessions show taxonomy and question filters. Completed sessions cannot be restarted through the student app.
@@ -144,3 +144,5 @@ Firebase restores the signed-in session across reloads. Dashboard returns to the
 Tours are available for login, dashboard, setup, questions, results, submission history, and details. Opt-out is stored per tour. Pending-session colors highlight due today/within three calendar days and due in four–six days; submitted, overdue, and missing-due-date sessions are filtered out of this list even though styling/status helpers exist for them.
 
 The homepage “Practice without submission” section is temporarily hidden via `HOMEPAGE_PRACTICE_ENABLED` in `app.js`. Its automatic taxonomy fetch is also disabled. Assigned quiz sessions, including assigned practice and saved practice resume, remain available.
+
+Question and review content render LaTeX stored as `.math-token` elements, delimited by `$...$`, `$$...$$`, `\(...\)`, or `\[...\]`, or as common bare commands such as `\sum_{i=1}^{n} i`. Use delimiters for complex expressions mixed with prose. Rendering uses KaTeX with trusted commands disabled.

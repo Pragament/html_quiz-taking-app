@@ -1,3 +1,5 @@
+import { activeMemberships, submissionScope, ownsSubmission } from './student-memberships.js?v=2026.11.03.1';
+import { renderMath } from './math-rendering.js?v=2026.10.30.1';
 import { maybePromptGuidedTour } from './tours.js';
 import { initializeHeader, setHeaderStudent } from './header.js';
 import { auth, db, loginUrl } from './firebase.js';
@@ -49,12 +51,13 @@ onAuthStateChanged(auth, async user => {
     try {
         const snap = await getDoc(doc(db, 'studentProfiles', user.uid));
         const profile = snap.exists() ? snap.data() : null;
-        if (!profile || profile.active !== true || profile.authUid !== user.uid || !profile.studentKey) {
+        const memberships = activeMemberships(profile, user.uid);
+        if (!memberships.length) {
             throw new Error('Student profile is unavailable or inactive.');
         }
         setHeaderStudent(profile);
-        if (isSubmissionDetailPage) await loadSubmissionDetail(profile);
-        else await loadSubmissionHistory(profile);
+        if (isSubmissionDetailPage) await loadSubmissionDetail(profile, memberships);
+        else await loadSubmissionHistory(profile, memberships);
     } catch (error) {
         els.statusText.textContent = error.message || 'Unable to load student profile.';
         els.historyList.textContent = 'Return to the homepage to sign in.';
@@ -84,24 +87,15 @@ els.studentReport.addEventListener('click', event => {
     copyReportPrompt(Number(button.dataset.copyPrompt));
 });
 
-async function loadSubmissionHistory(verifiedSession) {
-    if (!verifiedSession?.studentKey) {
-        els.statusText.textContent = 'Verify a student before viewing past submissions.';
-        els.studentName.textContent = 'No verified student';
-        els.classroomLabel.textContent = 'Return to the quiz page and verify student details first.';
-        els.historyList.innerHTML = '<div class="quiz-summary">No verified student session found.</div>';
-        return;
-    }
-
-    els.studentName.textContent = verifiedSession.studentName || 'Student';
-    els.classroomLabel.textContent = verifiedSession.classroomLabel || verifiedSession.studentKey;
+async function loadSubmissionHistory(profile, memberships) {
+    els.studentName.textContent = profile.studentName || 'Student';
+    els.classroomLabel.textContent = memberships.length === 1 ? memberships[0].studentKey : 'All active sections';
 
     try {
-        const snap = await getDocs(query(
-            collection(db, COLLECTIONS.submissions),
-            where('studentKey', '==', verifiedSession.studentKey)
-        ));
-        const submissions = snap.docs
+        const results = await Promise.all(memberships.map(membership => getDocs(query(
+            collection(db, COLLECTIONS.submissions), ...submissionScope(membership, where)
+        ))));
+        const submissions = results.flatMap(result => result.docs)
             .map(d => ({ ...d.data(), id: d.id }))
             .filter(item => !(item.practiceProgress === true && ['in_progress', 'paused'].includes(item.status)))
             .sort((a, b) => (b.submittedAtMillis || 0) - (a.submittedAtMillis || 0));
@@ -117,7 +111,7 @@ function submissionDetailUrl(id) {
     return `submission.html?${new URLSearchParams({ id })}`;
 }
 
-async function loadSubmissionDetail(profile) {
+async function loadSubmissionDetail(profile, memberships) {
     const id = new URLSearchParams(window.location.search).get('id');
     els.studentName.textContent = profile.studentName || 'Student';
     els.studentReport.innerHTML = '';
@@ -129,7 +123,7 @@ async function loadSubmissionDetail(profile) {
     try {
         const snap = await getDoc(doc(db, COLLECTIONS.submissions, id));
         const submission = snap.exists() ? snap.data() : null;
-        if (!submission || submission.studentKey !== profile.studentKey
+        if (!ownsSubmission(memberships, submission)
             || (submission.practiceProgress === true && ['in_progress', 'paused'].includes(submission.status))) {
             throw new Error('This submission is unavailable.');
         }
@@ -770,10 +764,7 @@ function isManualAnswer(answer) {
 }
 
 async function renderRich(root) {
-    root.querySelectorAll('.math-token').forEach(token => {
-        const latex = token.dataset.latex;
-        if (latex && window.katex) token.innerHTML = window.katex.renderToString(latex, { throwOnError: false });
-    });
+    renderMath(root);
     if (!window.mermaid) return;
     for (const token of root.querySelectorAll('.mermaid-token')) {
         const code = token.dataset.code || token.textContent;
