@@ -1,3 +1,4 @@
+import { activeMemberships } from './student-memberships.js?v=2026.11.03.1';
 import { initializeTours, maybePromptGuidedTour } from './tours.js';
 import { auth, db } from './firebase.js';
 import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
@@ -36,9 +37,8 @@ onAuthStateChanged(auth, async user => {
         const snap = await getDoc(doc(db, 'studentProfiles', user.uid));
         if (generation !== currentGeneration) return;
         const profile = snap.exists() ? snap.data() : null;
-        if (!profile || profile.active !== true || profile.authUid !== user.uid
-            || !profile.sectionId || !profile.admissionNo
-            || profile.studentKey !== `${profile.sectionId}_${profile.admissionNo}`) {
+        const memberships = activeMemberships(profile, user.uid);
+        if (!memberships.length) {
             throw new Error('Your student profile is unavailable or inactive. Contact your school administrator.');
         }
         window.location.replace(destinationUrl());

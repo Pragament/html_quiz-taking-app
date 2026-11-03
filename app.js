@@ -1,10 +1,12 @@
+import { activeMemberships, submissionScope } from './student-memberships.js?v=2026.11.03.1';
+import { renderMath } from './math-rendering.js?v=2026.10.30.1';
 import { maybePromptGuidedTour } from './tours.js';
 import { initializeHeader, setHeaderStudent } from './header.js';
-import { initializePracticeCoach } from './coach.js?v=2026.10.28.1';
-import { summarizePracticeStats } from './practice-stats.js?v=2026.10.28.1';
-import { initializePracticeBadgeHeader, snapshotPracticeBadges } from './practice-badges.js?v=2026.10.28.1';
-import { initializePracticeQuestionNavigation } from './question-navigation.js?v=2026.10.28.1';
-import { initializePracticeMistakeReview } from './practice-mistakes.js?v=2026.10.28.1';
+import { initializePracticeCoach } from './coach.js?v=2026.10.30.1';
+import { summarizePracticeStats } from './practice-stats.js?v=2026.10.30.1';
+import { initializePracticeBadgeHeader, snapshotPracticeBadges } from './practice-badges.js?v=2026.10.30.1';
+import { initializePracticeQuestionNavigation } from './question-navigation.js?v=2026.10.30.1';
+import { initializePracticeMistakeReview } from './practice-mistakes.js?v=2026.10.30.1';
 import { auth, db, loginUrl } from './firebase.js';
 import {
     collection,
@@ -73,7 +75,7 @@ const offlineAi = {
 const SESSION_STORAGE_KEY = 'quizActivityVerifiedSession';
 const SPEECH_VOICE_KEY = 'quizActivitySpeechVoice';
 const SPEECH_RATE_KEY = 'quizActivitySpeechRate';
-const APP_VERSION = '2026.10.28.1';
+const APP_VERSION = '2026.11.03.1';
 const SHORT_ANSWER_STOP_WORDS = new Set('a an the and or but if then so of to in on at by for with from as is are was were be been being am do does did have has had this that these those it its i you he she they we me my your his her their our not no nor can could will would shall should may might must there here what which who whom when where why how all any both each few more most other some such only own same than too very just also because after before while about into over under again once therefore then'.split(/\s+/));
 initializeHeader({ page: 'dashboard', statusId: 'statusText', statusText: 'Loading your student dashboard...', tourPage: () => {
     if (!document.getElementById('quizView').hidden) return 'quiz';
@@ -638,11 +640,11 @@ async function handleStudentAuth(user) {
         const snap = await getDoc(doc(db, 'studentProfiles', user.uid));
         if (generation !== authGeneration) return;
         const profile = snap.exists() ? snap.data() : null;
-        if (!profile || profile.active !== true || !profile.sectionId || !profile.admissionNo
-            || profile.authUid !== user.uid || profile.studentKey !== `${profile.sectionId}_${profile.admissionNo}`) {
+        const memberships = activeMemberships(profile, user.uid);
+        if (!memberships.length) {
             throw new Error('Your student profile is unavailable or inactive. Contact your school administrator.');
         }
-        studentProfile = { ...profile, authUid: user.uid, email: user.email };
+        studentProfile = { ...profile, ...memberships[0], activeSections: memberships, authUid: user.uid, email: user.email };
         setHeaderStudent(studentProfile);
         $('dashboardWelcome').textContent = `Welcome, ${profile.studentName || 'Student'}`;
         $('dashboardSection').textContent = `Admission ${profile.admissionNo}`;
@@ -669,11 +671,14 @@ async function loadStudentSessions() {
     $('sessionList').textContent = 'Loading quiz sessions...';
     $('refreshSessionsBtn').disabled = true;
     try {
-        const [snap, submissionsSnap] = await Promise.all([
-            getDocs(query(collection(db, COLLECTIONS.classrooms), where('sectionId', '==', profile.sectionId))),
-            getDocs(query(collection(db, COLLECTIONS.submissions), where('studentKey', '==', profile.studentKey)))
-        ]);
-        const submissions = submissionsSnap.docs.map(item => ({ ...item.data(), id: item.id }));
+        const results = await Promise.all(profile.activeSections.map(async membership => {
+            const [classrooms, submissions] = await Promise.all([
+                getDocs(query(collection(db, COLLECTIONS.classrooms), where('sectionId', '==', membership.sectionId))),
+                getDocs(query(collection(db, COLLECTIONS.submissions), ...submissionScope(membership, where)))
+            ]);
+            return { classrooms: classrooms.docs, submissions: submissions.docs };
+        }));
+        const submissions = results.flatMap(result => result.submissions.map(item => ({ ...item.data(), id: item.id })));
         const submittedClassrooms = new Set(submissions.filter(item => !isPracticeDraft(item)).map(item => item.classroomId));
         if (studentProfile !== profile) return;
         practiceDrafts = new Map(submissions.filter(isPracticeDraft).map(item => [item.classroomId, item]));
@@ -688,15 +693,15 @@ async function loadStudentSessions() {
                 </div>
             </article>`).join('');
         const today = new Date();
-        recentSessions = snap.docs.map(item => ({ classroomId: item.id, classroom: item.data() }))
+        recentSessions = results.flatMap(result => result.classrooms).map(item => ({ classroomId: item.id, classroom: item.data() }))
             .filter(item => isPendingQuizSession(item.classroom, submittedClassrooms.has(item.classroomId), today))
             .sort((a, b) => sessionDueMillis(a.classroom) - sessionDueMillis(b.classroom));
-        $('dashboardSection').textContent = `${recentSessions[0]?.classroom.sectionName || profile.sectionId} · Admission ${profile.admissionNo}`;
+        $('dashboardSection').textContent = profile.activeSections.length > 1 ? `${profile.activeSections.length} active sections` : `${recentSessions[0]?.classroom.sectionName || profile.sectionId} · Admission ${profile.admissionNo}`;
         $('sessionList').innerHTML = recentSessions.length ? recentSessions.map(({ classroomId, classroom }) => {
             const date = sessionCreatedMillis(classroom);
             const status = quizSessionStatus(classroom, submittedClassrooms.has(classroomId));
-            return `<button type="button" class="session-card ${status.className}" data-session-id="${esc(classroomId)}"><strong>${esc(classroom.className || classroom.classCode || classroomId)}</strong>${status.label ? `<span class="session-status">${esc(status.label)}</span>` : ''}<span>${esc(classroom.sectionName || profile.sectionId)}${date ? ` · ${esc(new Date(date).toLocaleString())}` : ''}</span><span class="session-dates"><span>Start: ${esc(sessionScheduleDate(classroom.startAt, 'Not scheduled'))}</span><span>Due: ${esc(sessionScheduleDate(classroom.dueAt, 'No due date'))}</span></span><span>Take Quiz →</span></button>`;
-        }).join('') : '<div class="quiz-summary">No pending quiz sessions are available for your section.</div>';
+            return `<button type="button" class="session-card ${status.className}" data-session-id="${esc(classroomId)}"><strong>${esc(classroom.className || classroom.classCode || classroomId)}</strong>${status.label ? `<span class="session-status">${esc(status.label)}</span>` : ''}<span>${esc(classroom.sectionName || classroom.sectionId || profile.sectionId)}${date ? ` · ${esc(new Date(date).toLocaleString())}` : ''}</span><span class="session-dates"><span>Start: ${esc(sessionScheduleDate(classroom.startAt, 'Not scheduled'))}</span><span>Due: ${esc(sessionScheduleDate(classroom.dueAt, 'No due date'))}</span></span><span>Take Quiz →</span></button>`;
+        }).join('') : '<div class="quiz-summary">No pending quiz sessions are available for your active sections.</div>';
         setStatus('Choose a quiz session to begin');
     } catch (error) {
         if (studentProfile !== profile) return;
@@ -763,19 +768,20 @@ async function openQuizSession(classroomId, { restart = false } = {}) {
         const snap = await getDoc(doc(db, COLLECTIONS.classrooms, classroomId));
         if (studentProfile !== profile) return;
         const classroom = snap.exists() ? snap.data() : null;
-        if (!classroom || classroom.sectionId !== profile.sectionId || classroom.classEnabled !== true || classroom.archived === true) {
+        const membership = profile.activeSections.find(entry => entry.sectionId === classroom?.sectionId);
+        if (!membership || classroom.classEnabled !== true || classroom.archived === true) {
             throw new Error('This quiz session is no longer available. Refresh the dashboard.');
         }
         if (!isPendingQuizSession(classroom, false)) {
             throw new Error('This quiz session is no longer pending. Refresh the dashboard.');
         }
-        session = { ...profile, classroomId, classroom, restartPractice: restart };
+        session = { ...profile, ...membership, classroomId, classroom, restartPractice: restart };
         loadedQuestions = [];
         quiz = null;
         currentIndex = 0;
         stopTimer();
         els.welcomeTitle.textContent = `Welcome, ${profile.studentName || 'Student'}`;
-        els.classroomLabel.textContent = `${classroom.className || classroomId} · ${classroom.sectionName || profile.sectionId}`;
+        els.classroomLabel.textContent = `${classroom.className || classroomId} · ${classroom.sectionName || membership.sectionId}`;
         configureSetupForClassroom();
         const existingSubmissionId = await findExistingClassroomSubmissionId();
         hasSubmittedCurrentSession = !!existingSubmissionId;
@@ -1157,7 +1163,7 @@ async function buildStudentPerformanceMemory() {
     if (!session?.studentKey) return memory;
     const snap = await getDocs(query(
         collection(db, COLLECTIONS.submissions),
-        where('studentKey', '==', session.studentKey)
+        ...submissionScope(session, where)
     ));
     memory.submissions = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() })).filter(item => !isPracticeDraft(item));
     memory.submissions.forEach(submission => {
@@ -2486,7 +2492,7 @@ async function hasExistingClassroomSubmission() {
 async function findExistingClassroomSubmissionId() {
     const snap = await getDocs(query(
         collection(db, COLLECTIONS.submissions),
-        where('studentKey', '==', session.studentKey)
+        ...submissionScope(session, where)
     ));
     return snap.docs.find(existing => existing.data().classroomId === session.classroomId && !isPracticeDraft(existing.data()))?.id || null;
 }
@@ -2937,10 +2943,7 @@ function isAnswered(question, answer) {
 }
 
 async function renderRich(root) {
-    root.querySelectorAll('.math-token').forEach(token => {
-        const latex = token.dataset.latex;
-        if (latex && window.katex) token.innerHTML = window.katex.renderToString(latex, { throwOnError: false });
-    });
+    renderMath(root);
     if (!window.mermaid) return;
     for (const token of root.querySelectorAll('.mermaid-token')) {
         const code = token.dataset.code || token.textContent;

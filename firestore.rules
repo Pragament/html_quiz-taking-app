@@ -16,18 +16,40 @@ service cloud.firestore {
         && profile().authUid == request.auth.uid;
     }
 
+    function sectionMembership(sectionId) {
+      let student = profile();
+      return student.get('memberships', {}) is map && 'memberships' in student
+        ? student.memberships.get(sectionId, {})
+        : (!('memberships' in student) && sectionId == student.get('sectionId', '')
+            ? student : {});
+    }
+
+    function activeStudentSection(sectionId) {
+      let entry = sectionMembership(sectionId);
+      return entry.get('active', false) == true
+        && entry.get('admissionNo', '') is string && entry.admissionNo.size() > 0
+        && entry.get('studentKey', '') == sectionId + '_' + entry.admissionNo;
+    }
+
+    function studentCanReadSubmission(data) {
+      return !('memberships' in profile())
+        ? data.studentKey == profile().studentKey
+        : activeStudentSection(data.sectionId)
+          && data.studentKey == sectionMembership(data.sectionId).studentKey;
+    }
+
     function submissionOwner(data) {
-      return data.authUid == request.auth.uid
+      let entry = sectionMembership(data.sectionId);
+      return activeStudentSection(data.sectionId) && data.authUid == request.auth.uid
         && data.email == request.auth.token.email
-        && data.studentKey == profile().studentKey
-        && data.sectionId == profile().sectionId
-        && data.admissionNo == profile().admissionNo
+        && data.studentKey == entry.studentKey
+        && data.admissionNo == entry.admissionNo
         && data.answers is list && data.questionCount is int;
     }
 
     function submissionClassroom(data) {
       let classroom = get(/databases/$(database)/documents/classrooms/$(data.classroomId)).data;
-      return classroom.sectionId == profile().sectionId
+      return classroom.sectionId == data.sectionId
         && classroom.classEnabled == true && classroom.get('archived', false) != true;
     }
 
@@ -181,7 +203,7 @@ service cloud.firestore {
     }
 
     match /classrooms/{classroomId} {
-      allow read: if activeStudent() && resource.data.sectionId == profile().sectionId;
+      allow read: if activeStudent() && activeStudentSection(resource.data.sectionId);
       allow read: if signedIn()
         && (resource.data.creatorId == request.auth.uid || canAdminClassroomSection(resource.data));
       allow create: if signedIn()
@@ -211,7 +233,7 @@ service cloud.firestore {
         return data.sourceType is string && data.sourceValue is string
           && ((data.sourceType == 'practice' && data.sourceValue == 'homepage')
             || (data.sourceType == 'quiz-session'
-              && get(/databases/$(database)/documents/classrooms/$(data.sourceValue)).data.sectionId == profile().sectionId
+              && activeStudentSection(get(/databases/$(database)/documents/classrooms/$(data.sourceValue)).data.sectionId)
               && get(/databases/$(database)/documents/classrooms/$(data.sourceValue)).data.classEnabled == true
               && get(/databases/$(database)/documents/classrooms/$(data.sourceValue)).data.get('archived', false) != true));
       }
@@ -251,7 +273,7 @@ service cloud.firestore {
 
       allow update: if canReviewSubmission(resource.data) && isAiReviewUpdate();
       // Also permits the student's historical submissions without authUid.
-      allow read: if activeStudent() && resource.data.studentKey == profile().studentKey;
+      allow read: if activeStudent() && studentCanReadSubmission(resource.data);
       allow create: if activeStudent()
         && submissionOwner(request.resource.data) && submissionClassroom(request.resource.data)
         && (!request.resource.data.get('practiceProgress', false) || validPracticeDraft(request.resource.data));
@@ -261,6 +283,7 @@ service cloud.firestore {
         && submissionOwner(request.resource.data) && submissionClassroom(request.resource.data)
         && request.resource.data.authUid == resource.data.authUid
         && request.resource.data.studentKey == resource.data.studentKey
+        && request.resource.data.sectionId == resource.data.sectionId
         && request.resource.data.classroomId == resource.data.classroomId
         && (validPracticeDraft(request.resource.data)
           || (request.resource.data.get('practiceProgress', false) == false

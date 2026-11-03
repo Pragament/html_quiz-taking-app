@@ -33,8 +33,8 @@ The checked-in rules deny profile list/write operations to all client SDK users.
 ## Login and page access
 
 1. `login.js` trims/lowercases the entered email and calls `signInWithEmailAndPassword`; passwords are not stored in Firestore.
-2. `onAuthStateChanged` reads `studentProfiles/{user.uid}` directly. Login and dashboard require `active === true`, matching `authUid`, nonempty `sectionId`/`admissionNo`, and the exact derived student key.
-3. Invalid login profiles cause sign-out and keep the login form available. The dashboard redirects when the user/profile is unavailable. Submission pages require an active profile, matching UID, and a student key; they use that key for history/detail ownership checks.
+2. `onAuthStateChanged` reads `studentProfiles/{user.uid}` directly. Login requires `active === true`, matching `authUid`, and at least one active entry in `memberships` with a valid admission number and derived student key. Profiles without that field use legacy top-level identity. A present map overrides the original section fields, including when an entry is inactive.
+3. Invalid login profiles cause sign-out and keep the login form available. The dashboard redirects when the user/profile is unavailable. Submission pages apply the same membership checks. History merges active sections, and detail access requires a matching section and student key (legacy profiles match by key).
 4. Firebase Auth restores the user across refreshes; the app re-reads the profile. Browser quiz state alone does not authorize access. The obsolete verified-session storage key is cleared on dashboard auth changes.
 5. `firebase.js` redirects to login with a next-page target. `login.js` accepts only `index.html`, `submissions.html`, or `submission.html`, optionally with a query string. Dashboard is the default.
 6. Header Sign Out calls Firebase `signOut`. Admins should synchronize profile `active` with disabled account status when revoking access.
@@ -49,7 +49,7 @@ New submission IDs are exactly:
 encodeURIComponent(classroomId)__encodeURIComponent(sectionId)__encodeURIComponent(admissionNo)
 ```
 
-New documents include `authUid`, authenticated `email`, `classroomId`, `sectionId`, `admissionNo`, `studentKey`, and `studentName`, plus the attempt data. History uses `studentKey`, preserving access to older submissions that lack `authUid`.
+New documents include `authUid`, authenticated `email`, `classroomId`, `sectionId`, `admissionNo`, `studentKey`, and `studentName`, plus the attempt data. The dashboard merges pending sessions and saved practice from active sections. Each attempt takes its identity from the classroom’s section. History matches section and student key for membership profiles, including older submissions without `authUid` if they have those fields. Legacy profiles query by student key alone.
 
 The app blocks duplicate completed submissions and uses deterministic IDs. The rules validate owner/profile identity and an active same-section classroom on create, but do not enforce that submission ID format or query for another document with the same session/student identity. They also do not enforce `dueAt`/`startAt`; those pending-session constraints are client behavior.
 
@@ -72,10 +72,10 @@ Assigned-practice documents additionally store `practiceBadgeVersion: 1` and top
 | `studentProfiles` | Signed-in user can get their UID document, including an inactive profile so login can reject it; no client list/write |
 | `qb_taxonomy_v1` | Public read; signed-in create/update with allowed type and string label; no delete |
 | `qb_questions_v1` | Public read of published questions; signed-in author can read their unpublished questions, create their own, and update while retaining authorship; no delete |
-| `classrooms` | Active student reads same-section sessions; creator or section admin also reads; creator creates/updates with valid list/section references; no delete |
+| `classrooms` | Active student reads sessions in active membership sections; creator or section admin also reads; creator creates/updates with valid list/section references; no delete |
 | `qb_lists_v1` | Active students read lists; signed-in list owner also reads and can create/update/delete their own lists |
 | `classSections` and nested `students` | Section-member/admin permissions; school-admin create/manage permissions as defined in the rules; ordinary student profile membership does not grant roster reads |
-| `qb_quiz_submissions_v1` | Active student reads own student-key history and creates own attempts; constrained unfinished-practice updates; classroom owners/section admins review and make restricted AI-review updates; no delete |
+| `qb_quiz_submissions_v1` | Active student reads own active-section history and creates own attempts; constrained unfinished-practice updates; classroom owners/section admins review and make restricted AI-review updates; no delete |
 | `qb_reactions_v1` | Public read through a legacy grant, plus the reaction write/delete paths described below |
 
 Teacher/admin identity is determined by `schoolAdmins/{uid}` existence, section `members` entries containing lowercased email and `admin`/`viewer` role, classroom `creatorId`, and list `ownerUid`, according to the operation. The rules do not use the old proposed `request.auth.token.role` teacher/admin model. Public taxonomy/question reads mean the student login screen is not a security boundary for those published resources. The staff-verified filter is optional client filtering.
@@ -92,7 +92,7 @@ The student app writes `qb_reactions_v1/{questionId}__{authUid}` with:
 - Required `sourceType`/`sourceValue`: `'quiz-session'` / classroom ID for assigned sessions, or `'practice'` / `'homepage'`.
 - `updatedAt: serverTimestamp()` and optional string `comment` up to 2,000 characters.
 
-The student write block validates those fields, the deterministic double-underscore ID, a published question, and active same-section source sessions. Existing reactions without source fields remain readable; current app saves add them.
+The student write block validates those fields, the deterministic double-underscore ID, a published question, and enabled source sessions in an active membership section. Existing reactions without source fields remain readable; current app saves add them.
 
 There are also two other matching blocks. The legacy block allows **public reaction reads**, signed-in owner writes using the **single-underscore** `questionId_uid` ID without the student block's value/comment/source/timestamp validation, and deletes by the stored owner. A further block grants source-session reads to classroom owners/section admins.
 
